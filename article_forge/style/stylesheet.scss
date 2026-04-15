@@ -1,6 +1,6 @@
 $font-families: (
   "default": sans-serif,
-  "system_ui": unquote("system-ui, -apple-system, BlinkMacSystemFont, sans-serif"),
+  "system_ui": unquote('"AndroidSystem", "MiSans", "Mi Sans", "HarmonyOS Sans SC", "HarmonyOS Sans", "OPPO Sans", "OPPOSans", "OnePlus Sans", "SamsungOne", "Samsung Sans", "Vivo Sans", "Source Han Sans SC", "Noto Sans CJK SC", system-ui, -apple-system, BlinkMacSystemFont, sans-serif'),
   "atkinson_hyperlegible": "Atkinson Hyperlegible",
   "inter": "Inter",
   "jost": "Jost",
@@ -8,6 +8,13 @@ $font-families: (
   "poppins": "Poppins",
   "vollkorn": "Vollkorn",
 );
+
+@font-face {
+  font-family: "AndroidSystem";
+  font-style: normal;
+  font-weight: normal;
+  src: url("/system-font/default.ttf") format("truetype");
+}
 
 @font-face {
   font-family: "Atkinson Hyperlegible";

@@ -254,6 +254,7 @@ fun rememberWebViewState(
             assetLoader = WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", AssetsPathHandler(context))
                 .addPathHandler("/res/", ResourcesPathHandler(context))
+                .addPathHandler("/system-font/", SystemFontPathHandler())
                 .build(),
             onOpenLink = onOpenLink,
             httpClient = httpClient,
