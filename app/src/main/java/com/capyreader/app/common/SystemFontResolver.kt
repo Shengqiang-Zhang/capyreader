@@ -2,14 +2,15 @@ package com.capyreader.app.common
 
 import android.graphics.fonts.Font
 import android.graphics.fonts.SystemFonts
+import com.jocmp.capy.logging.CapyLog
 import java.io.File
 
 /**
- * Picks a CJK-capable sans-serif face from the device's system fonts so the article
- * WebView can render in the OEM's custom system font (Mi Sans on MIUI, HarmonyOS Sans,
- * OPPO Sans, etc). Chromium's `system-ui` keyword on Android only reaches a fixed
- * Roboto/Noto stack, so OEM-registered families need to be served explicitly through
- * `@font-face`.
+ * Picks a sans-serif face from the device's system fonts so the article WebView
+ * can render in the OEM's custom system font (Samsung One UI on Samsung, Mi Sans
+ * on MIUI, HarmonyOS Sans, OPPO Sans, etc). Chromium's `system-ui` keyword on
+ * Android only reaches a fixed Roboto/Noto stack, so OEM-registered families need
+ * to be served explicitly through `@font-face`.
  */
 object SystemFontResolver {
     private const val WEIGHT_REGULAR = 400
@@ -21,24 +22,68 @@ object SystemFontResolver {
         "oppo",
         "oplus",
         "oneplus",
+        "oneui",
         "samsung",
+        "secsans",
+        "seccjk",
+        "sansation",
         "vivo",
         "bbk",
+        "honor",
+        "magicui",
+        "nubia",
     )
 
-    val sansSerifFile: File? by lazy {
-        runCatching { resolveFont()?.file }.getOrNull()
+    private val SCRIPT_HINTS = listOf(
+        "cjk", "korean", "japanese", "chinese", "arabic", "hebrew",
+        "devanagari", "thai", "tibetan", "myanmar", "khmer", "georgian",
+        "armenian", "ethiopic", "kannada", "malayalam", "tamil", "telugu",
+        "bengali", "gurmukhi", "gujarati", "sinhala", "cherokee",
+    )
+
+    private val STOCK_PREFIXES = listOf("roboto", "noto", "droid")
+    private val SUPPORTED_EXTENSIONS = setOf("ttf", "otf", "ttc")
+
+    val sansSerifFile: File? by lazy { resolveAndLog() }
+
+    private fun resolveAndLog(): File? {
+        val candidates = runCatching {
+            SystemFonts.getAvailableFonts().filter { it.isViableSansSerif() }
+        }.getOrDefault(emptyList())
+
+        val chosen = resolveFont(candidates)
+
+        if (chosen == null) {
+            CapyLog.info(
+                "system_font_unresolved",
+                mapOf(
+                    "candidates" to candidates.joinToString(",") { it.file?.name.orEmpty() },
+                ),
+            )
+        } else {
+            CapyLog.info(
+                "system_font_resolved",
+                mapOf(
+                    "file" to chosen.file?.absolutePath.orEmpty(),
+                    "locale" to chosen.localeList.toLanguageTags(),
+                ),
+            )
+        }
+        return chosen?.file
     }
 
-    private fun resolveFont(): Font? {
-        val candidates = SystemFonts.getAvailableFonts()
-            .filter { it.file != null && it.isRegularUpright() }
+    private fun resolveFont(candidates: List<Font>): Font? {
+        val oem = candidates.filter { it.looksOEMBranded() }
 
-        return candidates.firstOrNull { it.looksOEMBranded() }
+        return oem.firstOrNull { !it.isScriptSpecific() }
+            ?: oem.firstOrNull()
+            ?: candidates.firstOrNull { it.isLikelyOEMLatin() }
             ?: candidates.firstOrNull { it.coversChinese() }
     }
 
-    private fun Font.isRegularUpright(): Boolean {
+    private fun Font.isViableSansSerif(): Boolean {
+        val path = file ?: return false
+        if (path.extension.lowercase() !in SUPPORTED_EXTENSIONS) return false
         return style.weight == WEIGHT_REGULAR && style.slant == SLANT_UPRIGHT
     }
 
@@ -47,8 +92,23 @@ object SystemFontResolver {
         return OEM_FILE_HINTS.any { name.contains(it) }
     }
 
+    private fun Font.isScriptSpecific(): Boolean {
+        val name = file?.name.orEmpty().lowercase()
+        return SCRIPT_HINTS.any { name.contains(it) }
+    }
+
     private fun Font.coversChinese(): Boolean {
         val tags = localeList.toLanguageTags().lowercase()
         return tags.contains("zh") || tags.contains("hans") || tags.contains("hant")
+    }
+
+    private fun Font.isLikelyOEMLatin(): Boolean {
+        val name = file?.name.orEmpty().lowercase()
+        if (STOCK_PREFIXES.any { name.startsWith(it) }) return false
+        if (isScriptSpecific()) return false
+        if (name.contains("emoji") || name.contains("symbol") || name.contains("color")) return false
+        if (name.contains("serif") && !name.contains("sans")) return false
+        if (name.contains("mono")) return false
+        return true
     }
 }

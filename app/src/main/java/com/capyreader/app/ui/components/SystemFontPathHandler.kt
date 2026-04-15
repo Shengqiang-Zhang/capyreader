@@ -3,6 +3,7 @@ package com.capyreader.app.ui.components
 import android.webkit.WebResourceResponse
 import androidx.webkit.WebViewAssetLoader
 import com.capyreader.app.common.SystemFontResolver
+import java.io.File
 
 class SystemFontPathHandler : WebViewAssetLoader.PathHandler {
     override fun handle(path: String): WebResourceResponse? {
@@ -12,10 +13,18 @@ class SystemFontPathHandler : WebViewAssetLoader.PathHandler {
         }
 
         return WebResourceResponse(
-            "font/ttf",
+            mimeTypeFor(file),
             null,
             file.inputStream(),
         )
+    }
+
+    private fun mimeTypeFor(file: File): String {
+        return when (file.extension.lowercase()) {
+            "otf" -> "font/otf"
+            "ttc" -> "font/collection"
+            else -> "font/ttf"
+        }
     }
 
     private fun notFound(): WebResourceResponse {
