@@ -1,0 +1,106 @@
+name: Build and Publish Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. v2026.04.1). Leave blank to derive one from the date + run number."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark as prerelease"
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build free release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve tag name
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v$(date -u +'%Y.%m.%d')-build.${{ github.run_number }}"
+          fi
+          echo "name=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: ${TAG}"
+
+      - name: Configure signing
+        env:
+          ENCODED_RELEASE_KEYSTORE: ${{ secrets.ENCODED_RELEASE_KEYSTORE }}
+          ENCODED_SECRETS_PROPERTIES: ${{ secrets.ENCODED_SECRETS_PROPERTIES }}
+        run: |
+          if [ -n "${ENCODED_RELEASE_KEYSTORE}" ] && [ -n "${ENCODED_SECRETS_PROPERTIES}" ]; then
+            echo "Using release keystore from repository secrets"
+            printf '%s' "${ENCODED_RELEASE_KEYSTORE}" | base64 --decode > ./release.keystore
+            printf '%s' "${ENCODED_SECRETS_PROPERTIES}" | base64 --decode > ./secrets.properties
+          else
+            echo "No release secrets found — falling back to committed debug.keystore"
+            cp debug.keystore release.keystore
+            printf '%s\n' 'store_password=android' 'key_alias=androiddebugkey' 'key_password=android' > secrets.properties
+          fi
+
+      - name: Build free release APK
+        run: ./gradlew :app:assembleFreeRelease --no-daemon --stacktrace
+
+      - name: Stage APK artifact
+        id: artifact
+        run: |
+          SRC="$(ls app/build/outputs/apk/free/release/app-free-release*.apk | head -n 1)"
+          if [ -z "${SRC}" ] || [ ! -f "${SRC}" ]; then
+            echo "APK not found in app/build/outputs/apk/free/release/" >&2
+            ls -R app/build/outputs/apk || true
+            exit 1
+          fi
+          mkdir -p release-artifacts
+          DEST="release-artifacts/capyreader-${{ steps.tag.outputs.name }}.apk"
+          cp "${SRC}" "${DEST}"
+          echo "path=${DEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: capyreader-${{ steps.tag.outputs.name }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: ${{ steps.artifact.outputs.path }}
