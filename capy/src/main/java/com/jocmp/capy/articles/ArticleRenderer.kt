@@ -95,12 +95,13 @@ class ArticleRenderer(
     }
 
     private fun fontPreload(fontFamily: FontOption): String {
-        return when (fontFamily) {
-            FontOption.SYSTEM_DEFAULT -> ""
-            else -> """
-                <link rel="preload" href="https://appassets.androidplatform.net/res/font/${fontFamily.slug}.ttf" as="font" type="font/ttf" crossorigin>
-                """
+        if (!fontFamily.hasBundledFont) {
+            return ""
         }
+
+        return """
+            <link rel="preload" href="https://appassets.androidplatform.net/res/font/${fontFamily.slug}.ttf" as="font" type="font/ttf" crossorigin>
+            """
     }
 }
 

@@ -76,6 +76,7 @@ fun ArticleFontMenu(
 private fun Context.translationKey(option: FontOption): String {
     return when (option) {
         FontOption.SYSTEM_DEFAULT -> getString(R.string.font_option_system_default)
+        FontOption.SYSTEM_UI -> getString(R.string.font_option_system_ui)
         FontOption.ATKINSON_HYPERLEGIBLE -> getString(R.string.font_option_atkinson_hyperlegible)
         FontOption.INTER -> getString(R.string.font_option_inter)
         FontOption.JOST -> getString(R.string.font_option_jost)
@@ -86,7 +87,7 @@ private fun Context.translationKey(option: FontOption): String {
 }
 
 private fun findFont(fontOption: FontOption) = when (fontOption) {
-    FontOption.SYSTEM_DEFAULT -> null
+    FontOption.SYSTEM_DEFAULT, FontOption.SYSTEM_UI -> null
     FontOption.ATKINSON_HYPERLEGIBLE -> Font(resId = R.font.atkinson_hyperlegible)
     FontOption.INTER -> Font(resId = R.font.inter)
     FontOption.JOST -> Font(resId = R.font.jost)
