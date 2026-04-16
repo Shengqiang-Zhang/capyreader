@@ -188,6 +188,9 @@
     <string name="font_option_poppins" translatable="false">Poppins</string>
     <string name="font_option_system_default">System default</string>
     <string name="font_option_system_ui">Real system default</string>
+    <string name="font_option_custom">Custom font…</string>
+    <string name="font_option_custom_with_name">Custom: %1$s</string>
+    <string name="font_option_custom_pick_error">Could not load selected font</string>
     <string name="font_option_inter" translatable="false">Inter</string>
     <string name="font_option_jost" translatable="false">Jost</string>
     <string name="font_option_literata" translatable="false">Literata</string>

@@ -255,6 +255,7 @@ fun rememberWebViewState(
                 .addPathHandler("/assets/", AssetsPathHandler(context))
                 .addPathHandler("/res/", ResourcesPathHandler(context))
                 .addPathHandler("/system-font/", SystemFontPathHandler())
+                .addPathHandler("/custom-font/", CustomFontPathHandler(context))
                 .build(),
             onOpenLink = onOpenLink,
             httpClient = httpClient,

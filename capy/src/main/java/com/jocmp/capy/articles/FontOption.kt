@@ -3,6 +3,7 @@ package com.jocmp.capy.articles
 enum class FontOption {
     SYSTEM_DEFAULT,
     SYSTEM_UI,
+    CUSTOM,
     ATKINSON_HYPERLEGIBLE,
     INTER,
     JOST,
@@ -14,6 +15,7 @@ enum class FontOption {
         get() = when(this) {
             SYSTEM_DEFAULT -> "default"
             SYSTEM_UI -> "system_ui"
+            CUSTOM -> "custom"
             ATKINSON_HYPERLEGIBLE -> "atkinson_hyperlegible"
             INTER -> "inter"
             JOST -> "jost"
@@ -24,7 +26,7 @@ enum class FontOption {
 
     val hasBundledFont: Boolean
         get() = when (this) {
-            SYSTEM_DEFAULT, SYSTEM_UI -> false
+            SYSTEM_DEFAULT, SYSTEM_UI, CUSTOM -> false
             else -> true
         }
 
