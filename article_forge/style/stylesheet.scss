@@ -422,7 +422,7 @@ ul:has(img) {
 }
 
 @each $family, $value in $font-families {
-  .article__title--font-#{$family} {
+  .article__header--font-#{$family} {
     font-family: $value;
   }
 }

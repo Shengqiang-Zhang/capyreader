@@ -137,11 +137,11 @@ private fun updateTitleFontFamily(webView: WebView, fontOption: FontOption) {
         """
         (function() {
           let slug = "${fontOption.slug}";
-          let articleTitle = document.getElementsByClassName("article__title")[0];
+          let articleHeader = document.getElementsByClassName("article__header")[0];
 
-          if (articleTitle) {
-            const classes = articleTitle.className.split(" ").filter(c => !c.startsWith("article__title--font"));
-            articleTitle.className = classes.join(" ").trim() + " article__title--font-" + slug;
+          if (articleHeader) {
+            const classes = articleHeader.className.split(" ").filter(c => !c.startsWith("article__header--font"));
+            articleHeader.className = classes.join(" ").trim() + " article__header--font-" + slug;
           }
         })();
         """.trimIndent()
