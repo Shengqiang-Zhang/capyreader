@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.VolunteerActivism
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -23,7 +24,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
@@ -36,24 +41,57 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.capyreader.app.BuildConfig.VERSION_NAME
 import com.capyreader.app.R
+import com.capyreader.app.common.UpdateCheckResult
+import com.capyreader.app.common.UpdateChecker
 import com.capyreader.app.ui.LocalLinkOpener
 import com.capyreader.app.ui.components.FormSection
+import com.capyreader.app.ui.components.LocalSnackbarHost
+import com.capyreader.app.ui.fixtures.PreviewKoinApplication
 import com.capyreader.app.ui.theme.CapyTheme
 import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 
 @Composable
-fun AboutSettingsPanel() {
+fun AboutSettingsPanel(updateChecker: UpdateChecker = koinInject()) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
+    val snackbar = LocalSnackbarHost.current
+    val linkOpener = LocalLinkOpener.current
+    val displayedVersion = "v$VERSION_NAME"
+    var isChecking by remember { mutableStateOf(false) }
+
     val copyVersionToClipboard = {
         scope.launch {
             clipboard.setClipEntry(
-                ClipEntry(ClipData.newPlainText("", "Capy Reader $VERSION_NAME"))
+                ClipEntry(ClipData.newPlainText("", "Capy Reader $displayedVersion"))
             )
         }
     }
 
-    val linkOpener = LocalLinkOpener.current
+    val checkingMessage = stringResource(R.string.settings_check_for_updates_checking)
+    val upToDateMessage = stringResource(R.string.settings_check_for_updates_up_to_date)
+    val failureMessage = stringResource(R.string.settings_check_for_updates_failure)
+
+    val checkForUpdates = {
+        if (!isChecking) {
+            isChecking = true
+            scope.launch {
+                val checkingJob = launch { snackbar.showSnackbar(checkingMessage) }
+                val result = updateChecker.check(VERSION_NAME)
+                checkingJob.cancel()
+                snackbar.currentSnackbarData?.dismiss()
+                isChecking = false
+                when (result) {
+                    is UpdateCheckResult.UpdateAvailable ->
+                        linkOpener.open(result.releaseUrl.toUri())
+                    UpdateCheckResult.UpToDate ->
+                        snackbar.showSnackbar(upToDateMessage)
+                    UpdateCheckResult.Failure ->
+                        snackbar.showSnackbar(failureMessage)
+                }
+            }
+        }
+    }
 
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -85,6 +123,20 @@ fun AboutSettingsPanel() {
                     headlineContent = { Text(stringResource(R.string.settings_donate_button)) }
                 )
             }
+            Box(
+                modifier = Modifier.clickable(enabled = !isChecking) {
+                    checkForUpdates()
+                }
+            ) {
+                ListItem(
+                    leadingContent = {
+                        Icon(Icons.Rounded.SystemUpdate, contentDescription = null)
+                    },
+                    headlineContent = {
+                        Text(stringResource(R.string.settings_check_for_updates))
+                    }
+                )
+            }
         }
 
         FormSection(title = stringResource(R.string.settings_section_version)) {
@@ -98,7 +150,7 @@ fun AboutSettingsPanel() {
                     }
             ) {
                 Text(
-                    text = VERSION_NAME,
+                    text = displayedVersion,
                     modifier = Modifier
                         .padding(16.dp)
                 )
@@ -139,7 +191,9 @@ private object Support {
 @Preview
 @Composable
 private fun AboutSettingsPanelPreview() {
-    CapyTheme {
-        AboutSettingsPanel()
+    PreviewKoinApplication {
+        CapyTheme {
+            AboutSettingsPanel()
+        }
     }
 }

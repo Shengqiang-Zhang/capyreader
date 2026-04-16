@@ -176,6 +176,10 @@
     <string name="settings_article_list_shorten_titles">Shorten titles</string>
     <string name="settings_section_version">Version</string>
     <string name="settings_option_copy_version">Copy version</string>
+    <string name="settings_check_for_updates">Check for updates</string>
+    <string name="settings_check_for_updates_checking">Checking for updates…</string>
+    <string name="settings_check_for_updates_up_to_date">You\'re on the latest version</string>
+    <string name="settings_check_for_updates_failure">Could not check for updates</string>
     <string name="settings_option_full_content_title">Sticky Full Content</string>
     <string name="settings_option_full_content_subtitle">Remember choice to load full article content</string>
     <string name="refresh_on_start">On start</string>
