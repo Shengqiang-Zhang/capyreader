@@ -79,6 +79,7 @@
     <string name="article_share">Share article</string>
     <string name="extract_full_content">Extract Full Content</string>
     <string name="action_mark_all_read">Mark All as Read</string>
+    <string name="action_scroll_to_top">Scroll to top</string>
     <string name="mark_all_read_dialog_description">Mark all items as read?</string>
     <string name="mark_all_read_dialog_submit">Confirm</string>
     <string name="article_actions_open_menu">Open article actions</string>
@@ -245,6 +246,7 @@
     <string name="starred_exporter_failure">Export failed</string>
     <string name="settings_reader_title">Reader</string>
     <string name="settings_options_reader_pin_top_toolbar">Pin Toolbars</string>
+    <string name="settings_apply_article_font_to_app">Apply article font to whole app</string>
 
     <string name="article_bottom_bar_next_article">Go to next article</string>
     <string name="settings_gestures_reader_swipe_down">Swipe Down</string>

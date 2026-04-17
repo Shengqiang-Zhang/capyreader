@@ -28,6 +28,8 @@ class DisplaySettingsViewModel(
     var accentColors by mutableStateOf(appPreferences.accentColors.get())
         private set
 
+    val applyArticleFontToApp = appPreferences.applyArticleFontToApp
+
     private val _imagePreview = mutableStateOf(appPreferences.articleListOptions.imagePreview.get())
 
     private val _showSummary = mutableStateOf(appPreferences.articleListOptions.showSummary.get())
@@ -79,6 +81,10 @@ class DisplaySettingsViewModel(
     fun updateAccentColors(enable: Boolean) {
         appPreferences.accentColors.set(enable)
         this.accentColors = enable
+    }
+
+    fun updateApplyArticleFontToApp(enable: Boolean) {
+        appPreferences.applyArticleFontToApp.set(enable)
     }
 
     fun updatePinArticleBars(pinBars: Boolean) {

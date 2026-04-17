@@ -54,6 +54,7 @@ fun DisplaySettingsPanel(
     val improveTalkback by viewModel.improveTalkback.collectChangesWithCurrent()
     val markReadButtonPosition by viewModel.markReadButtonPosition.collectChangesWithCurrent()
     val appTheme by viewModel.appPreferences.appTheme.collectChangesWithCurrent()
+    val applyArticleFontToApp by viewModel.applyArticleFontToApp.collectChangesWithCurrent()
 
     DisplaySettingsPanelView(
         themeMode = viewModel.themeMode,
@@ -71,6 +72,8 @@ fun DisplaySettingsPanel(
         imageVisibility = viewModel.imageVisibility,
         markReadButtonPosition = markReadButtonPosition,
         updateMarkReadButtonPosition = viewModel::updateMarkReadButtonPosition,
+        applyArticleFontToApp = applyArticleFontToApp,
+        updateApplyArticleFontToApp = viewModel::updateApplyArticleFontToApp,
         onNavigateToUnreadBadges = onNavigateToUnreadBadges,
         onNavigateToArticleList = onNavigateToArticleList,
     )
@@ -93,6 +96,8 @@ fun DisplaySettingsPanelView(
     markReadButtonPosition: MarkReadPosition,
     updateImageVisibility: (option: ReaderImageVisibility) -> Unit,
     updateMarkReadButtonPosition: (position: MarkReadPosition) -> Unit,
+    applyArticleFontToApp: Boolean = false,
+    updateApplyArticleFontToApp: (Boolean) -> Unit = {},
     onNavigateToUnreadBadges: () -> Unit = {},
     onNavigateToArticleList: () -> Unit = {},
 ) {
@@ -163,6 +168,13 @@ fun DisplaySettingsPanelView(
                     checked = pinArticleBars,
                     onCheckedChange = updatePinArticleBars,
                     title = stringResource(R.string.settings_options_reader_pin_top_toolbar),
+                )
+            }
+            RowItem {
+                TextSwitch(
+                    checked = applyArticleFontToApp,
+                    onCheckedChange = updateApplyArticleFontToApp,
+                    title = stringResource(R.string.settings_apply_article_font_to_app),
                 )
             }
         }

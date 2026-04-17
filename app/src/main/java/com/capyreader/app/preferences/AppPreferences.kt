@@ -66,6 +66,9 @@ class AppPreferences(context: Context) {
     val accentColors: Preference<Boolean>
         get() = preferenceStore.getBoolean("accent_colors", false)
 
+    val applyArticleFontToApp: Preference<Boolean>
+        get() = preferenceStore.getBoolean("apply_article_font_to_app", false)
+
     val openLinksInternally: Preference<Boolean>
         get() = preferenceStore.getBoolean("open_links_internally", true)
 

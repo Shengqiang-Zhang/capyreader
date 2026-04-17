@@ -4,7 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.DrawerValue
@@ -40,6 +42,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -75,6 +78,7 @@ import com.capyreader.app.ui.articles.list.LabelBottomSheet
 import com.capyreader.app.ui.articles.list.LocalMarkAllRead
 import com.capyreader.app.ui.articles.list.MarkAllReadButton
 import com.capyreader.app.ui.articles.list.MarkAllReadDialog
+import com.capyreader.app.ui.articles.list.ScrollToTopButton
 import com.capyreader.app.ui.articles.list.SwipeUpActionBox
 import com.capyreader.app.ui.articles.list.resetScrollBehaviorListener
 import com.capyreader.app.ui.articles.media.ArticleMediaView
@@ -539,10 +543,19 @@ fun ArticleScreen(
                             SnackbarHost(hostState = snackbarHostState)
                         },
                         floatingActionButton = {
-                            if (markReadPosition == MarkReadPosition.FLOATING_ACTION_BUTTON) {
-                                MarkAllReadButton(
-                                    position = MarkReadPosition.FLOATING_ACTION_BUTTON,
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                ScrollToTopButton(
+                                    listState = listState,
+                                    onClick = { scrollToTop() },
                                 )
+                                if (markReadPosition == MarkReadPosition.FLOATING_ACTION_BUTTON) {
+                                    MarkAllReadButton(
+                                        position = MarkReadPosition.FLOATING_ACTION_BUTTON,
+                                    )
+                                }
                             }
                         },
                         bottomBar = {
