@@ -65,7 +65,7 @@ internal class LocalAccountDelegate(
             mercuryParser.parse(url) ?: return Result.failure(Throwable("Failed to fetch page"))
         val updatedAt = nowUTC()
 
-        database.transactionWithErrorHandling {
+        return database.transactionWithErrorHandling {
             database.articlesQueries.create(
                 id =url,
                 feed_id = feedID,
@@ -86,8 +86,6 @@ internal class LocalAccountDelegate(
                 read = false,
             )
         }
-
-        return Result.success(Unit)
     }
 
     private fun findOrCreateReadLaterFeed(): String {

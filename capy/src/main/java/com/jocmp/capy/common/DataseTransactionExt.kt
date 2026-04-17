@@ -6,10 +6,12 @@ import com.jocmp.capy.logging.CapyLog
 
 fun Database.transactionWithErrorHandling(
     body: TransactionWithoutReturn.() -> Unit
-) {
-    try {
+): Result<Unit> {
+    return try {
         transaction(noEnclosing = false, body)
+        Result.success(Unit)
     } catch(e: Throwable) {
         CapyLog.error("db_error", e)
+        Result.failure(e)
     }
 }

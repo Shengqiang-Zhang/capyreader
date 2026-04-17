@@ -50,16 +50,16 @@ class OPMLImportWorker(
 
         setForeground(createForegroundInfo())
 
-        try {
+        return try {
             import(opmlURI)
 
             showToast(R.string.opml_import_toast_complete)
+            Result.success()
         } catch (e: Throwable) {
             CapyLog.error("importer", e)
             showToast(R.string.opml_import_toast_failed)
+            Result.failure()
         }
-
-        return Result.success()
     }
 
     private suspend fun import(opmlUri: Uri) {
