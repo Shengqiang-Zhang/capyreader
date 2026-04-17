@@ -24,7 +24,7 @@ fun ScrollToTopButton(
     listState: LazyListState,
     onClick: () -> Unit,
 ) {
-    val visible by remember {
+    val visible by remember(listState) {
         derivedStateOf {
             listState.firstVisibleItemIndex > 0 ||
                 listState.firstVisibleItemScrollOffset > 0
