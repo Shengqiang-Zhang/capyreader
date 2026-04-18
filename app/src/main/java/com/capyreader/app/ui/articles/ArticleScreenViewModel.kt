@@ -382,17 +382,19 @@ class ArticleScreenViewModel(
         refreshJob?.cancel()
 
         refreshJob = viewModelScope.launch(ioDispatcher) {
-            account.refresh(filter).onFailure { throwable ->
-                if (throwable is UnauthorizedError && _showUnauthorizedMessage == UnauthorizedMessageState.HIDE) {
-                    _showUnauthorizedMessage = UnauthorizedMessageState.SHOW
+            try {
+                account.refresh(filter).onFailure { throwable ->
+                    if (throwable is UnauthorizedError && _showUnauthorizedMessage == UnauthorizedMessageState.HIDE) {
+                        _showUnauthorizedMessage = UnauthorizedMessageState.SHOW
+                    }
                 }
-            }
 
-            launchIO {
-                WidgetUpdater.update(context)
+                launchIO {
+                    WidgetUpdater.update(context)
+                }
+            } finally {
+                onComplete()
             }
-
-            onComplete()
         }
     }
 
@@ -419,12 +421,9 @@ class ArticleScreenViewModel(
         refresh(ArticleFilter.default()) {
             _refreshAllState.value = AngleRefreshState.SETTLING
             refreshInitialized = true
+            refreshingAll = false
             resetScrollHighWaterMark()
             onComplete()
-
-            refreshJob?.invokeOnCompletion {
-                refreshingAll = false
-            }
         }
     }
 

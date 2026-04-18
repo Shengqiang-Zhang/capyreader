@@ -138,6 +138,23 @@ class ArticleScreenViewModelTest {
         }
     }
 
+    @Test
+    fun `refreshAll clears loading state when the refresh fails`() = runTest {
+        every { appPreferences.refreshInterval } returns mockPreference(RefreshInterval.MANUALLY_ONLY)
+        coEvery { account.refresh(any()) } returns Result.failure(RuntimeException("boom"))
+
+        val viewModel = buildViewModel()
+
+        viewModel.refreshAll()
+        assertTrue(viewModel.refreshingAll)
+        assertTrue(viewModel.isPullToRefreshing)
+
+        advanceUntilIdle()
+
+        assertFalse(viewModel.refreshingAll)
+        assertFalse(viewModel.isPullToRefreshing)
+    }
+
     private fun buildViewModel(): ArticleScreenViewModel {
         val application = RuntimeEnvironment.getApplication() as Application
 
