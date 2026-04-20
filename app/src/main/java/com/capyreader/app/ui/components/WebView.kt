@@ -92,8 +92,10 @@ class AccompanistWebViewClient(
      */
     private fun proxyRequest(request: WebResourceRequest): WebResourceResponse? {
         return try {
+            val url = request.url.toString()
+            val referer = WebRequestProxyPolicy.refererFor(url, request, pageUrl)
             val okHttpRequest = Request.Builder()
-                .url(request.url.toString())
+                .url(url)
                 .apply {
                     request
                         .requestHeaders
@@ -101,7 +103,7 @@ class AccompanistWebViewClient(
                         .forEach { (key, value) ->
                             header(key, value)
                         }
-                    pageUrl?.let { header("Referer", it) }
+                    referer?.let { header("Referer", it) }
                 }
                 .build()
 
