@@ -5,34 +5,82 @@ import java.net.URI
 
 object WebRequestProxyPolicy {
     fun shouldProxy(url: String, request: WebResourceRequest, pageUrl: String?): Boolean {
-        val origin = request.requestHeaders["Origin"]
-        val accept = request.requestHeaders["Accept"]
-
         if (isKnownHTMLRedirect(url)) {
             return false
         }
 
-        // XHR/fetch from null origin (loadDataWithBaseURL)
-        // Issue #1616
-        val isCorsRequest = origin == "null" && url.startsWith("http")
+        return isCorsRequest(url, request) ||
+                isIframeNavigation(url, request) ||
+                isMediaRequest(url, request, pageUrl)
+    }
 
-        // iframe document load
-        // Strips X-Frame-Options to allow embeds like Slashdot
-        // Issue #1605
-        val isIframeNavigation = !request.isForMainFrame &&
+    /**
+     * Referer value to attach to a proxied request.
+     *
+     * For media sub-resources we use the request URL's own origin so that hotlink-protected
+     * CDNs that allow same-origin Referers (but reject unrelated hosts) still serve the asset.
+     * It also keeps the article URL from leaking to third-party image hosts.
+     * Issue #1878 (needs-a-Referer CDNs) is satisfied for media requests because, when
+     * `pageUrl` is available, we attach a Referer.
+     *
+     * Iframe and CORS proxies keep the article URL as Referer when it is available, since
+     * some embeds depend on it.
+     */
+    fun refererFor(url: String, request: WebResourceRequest, pageUrl: String?): String? {
+        if (isMediaRequest(url, request, pageUrl)) {
+            return originOf(url) ?: pageUrl
+        }
+        return pageUrl
+    }
+
+    // XHR/fetch from null origin (loadDataWithBaseURL)
+    // Issue #1616
+    private fun isCorsRequest(url: String, request: WebResourceRequest): Boolean {
+        val origin = request.requestHeaders["Origin"]
+        return origin == "null" && url.startsWith("http")
+    }
+
+    // iframe document load
+    // Strips X-Frame-Options to allow embeds like Slashdot
+    // Issue #1605
+    private fun isIframeNavigation(url: String, request: WebResourceRequest): Boolean {
+        val accept = request.requestHeaders["Accept"]
+        return !request.isForMainFrame &&
                 accept?.startsWith("text/html") == true &&
                 url.startsWith("http")
+    }
 
-        // Sub-resource requests that need a Referer header for CDNs
-        // Only proxy article sub-resources (null or absent origin from loadDataWithBaseURL),
-        // not iframe sub-resources which have their own origin (Issue #1878)
-        val isMediaRequest = pageUrl != null &&
+    // Sub-resource requests that need a Referer header for CDNs
+    // Only proxy article sub-resources (null or absent origin from loadDataWithBaseURL),
+    // not iframe sub-resources which have their own origin (Issue #1878)
+    private fun isMediaRequest(
+        url: String,
+        request: WebResourceRequest,
+        pageUrl: String?,
+    ): Boolean {
+        val origin = request.requestHeaders["Origin"]
+        val accept = request.requestHeaders["Accept"]
+        return pageUrl != null &&
                 !request.isForMainFrame &&
-               isMediaOrigin(origin) &&
+                isMediaOrigin(origin) &&
                 accept?.startsWith("text/html") != true &&
                 url.startsWith("http")
+    }
 
-        return isCorsRequest || isIframeNavigation || isMediaRequest
+    private fun originOf(url: String): String? {
+        return try {
+            val uri = URI(url)
+            val scheme = uri.scheme ?: return null
+            val host = uri.host ?: return null
+            val port = uri.port
+            if (port != -1) {
+                "$scheme://$host:$port"
+            } else {
+                "$scheme://$host"
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     // Skips if the origin is missing which is the case

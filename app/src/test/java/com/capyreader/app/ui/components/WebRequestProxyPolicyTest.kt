@@ -3,8 +3,11 @@ package com.capyreader.app.ui.components
 import android.net.Uri
 import android.webkit.WebResourceRequest
 import com.capyreader.app.ui.components.WebRequestProxyPolicy.isKnownHTMLRedirect
+import com.capyreader.app.ui.components.WebRequestProxyPolicy.refererFor
 import com.capyreader.app.ui.components.WebRequestProxyPolicy.shouldProxy
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -96,6 +99,72 @@ class WebRequestProxyPolicyTest {
                 "https://www.reddit.com/media?url=https%3A%2F%2Fpreview.redd.it%2Fimage.jpg",
                 FakeWebResourceRequest(accept = "text/html,application/xhtml+xml,*/*;q=0.8"),
                 pageUrl = "https://www.reddit.com/r/sub/comments/abc/post/",
+            )
+        )
+    }
+
+    @Test
+    fun refererFor_mediaRequestUsesImageOrigin() {
+        // Hotlink-protected CDNs (e.g. img2.jintiankansha.me) 403 when Referer points
+        // to an unrelated host, so for media sub-resources we use the image's own origin.
+        assertEquals(
+            "http://img2.jintiankansha.me",
+            refererFor(
+                "http://img2.jintiankansha.me/get?src=http://mmbiz.qpic.cn/foo.png",
+                FakeWebResourceRequest(accept = "image/webp,image/*,*/*;q=0.8", origin = "null"),
+                pageUrl = "https://feedmaker.kindle4rss.com/articles/123",
+            )
+        )
+    }
+
+    @Test
+    fun refererFor_iframeUsesArticleUrl() {
+        assertEquals(
+            "https://example.com/article",
+            refererFor(
+                "https://slashdot.org/story/123",
+                FakeWebResourceRequest(accept = "text/html,application/xhtml+xml"),
+                pageUrl = "https://example.com/article",
+            )
+        )
+    }
+
+    @Test
+    fun refererFor_mercuryCorsFetchUsesArticleUrl() {
+        // Mercury parser fetches the source HTML as an XHR with Accept: text/html.
+        // That goes through the CORS branch, so Referer stays the article URL.
+        assertEquals(
+            "https://example.com/article",
+            refererFor(
+                "https://example.com/article",
+                FakeWebResourceRequest(
+                    accept = "text/html,application/xhtml+xml",
+                    origin = "null",
+                ),
+                pageUrl = "https://example.com/article",
+            )
+        )
+    }
+
+    @Test
+    fun refererFor_nonProxyUsesPageUrl() {
+        assertEquals(
+            "https://example.com/article",
+            refererFor(
+                "https://example.com/",
+                FakeWebResourceRequest(forMainFrame = true),
+                pageUrl = "https://example.com/article",
+            )
+        )
+    }
+
+    @Test
+    fun refererFor_nullPageUrl() {
+        assertNull(
+            refererFor(
+                "https://cdn.example.com/image.jpg",
+                FakeWebResourceRequest(accept = "image/webp", origin = "null"),
+                pageUrl = null,
             )
         )
     }
