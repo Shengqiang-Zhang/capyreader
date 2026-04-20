@@ -20,9 +20,11 @@ object WebRequestProxyPolicy {
      * For media sub-resources we use the request URL's own origin so that hotlink-protected
      * CDNs that allow same-origin Referers (but reject unrelated hosts) still serve the asset.
      * It also keeps the article URL from leaking to third-party image hosts.
-     * Issue #1878 (needs-a-Referer CDNs) is still satisfied because we always send one.
+     * Issue #1878 (needs-a-Referer CDNs) is satisfied for media requests because, when
+     * `pageUrl` is available, we attach a Referer.
      *
-     * Iframe and CORS proxies keep the article URL as Referer, since some embeds depend on it.
+     * Iframe and CORS proxies keep the article URL as Referer when it is available, since
+     * some embeds depend on it.
      */
     fun refererFor(url: String, request: WebResourceRequest, pageUrl: String?): String? {
         if (isMediaRequest(url, request, pageUrl)) {
@@ -69,8 +71,13 @@ object WebRequestProxyPolicy {
         return try {
             val uri = URI(url)
             val scheme = uri.scheme ?: return null
-            val authority = uri.authority ?: return null
-            "$scheme://$authority"
+            val host = uri.host ?: return null
+            val port = uri.port
+            if (port != -1) {
+                "$scheme://$host:$port"
+            } else {
+                "$scheme://$host"
+            }
         } catch (_: Exception) {
             null
         }
