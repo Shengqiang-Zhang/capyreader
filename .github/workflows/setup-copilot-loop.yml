@@ -1,0 +1,73 @@
+name: Setup Copilot ↔ Claude loop
+
+# One-shot setup for the Copilot ↔ Claude review loop. Run this once per repo
+# from the Actions tab ("Run workflow") after adding the two required secrets:
+#   - CLAUDE_CODE_OAUTH_TOKEN  (Claude Code auth)
+#   - COPILOT_LOOP_PAT         (fine-grained PAT: Contents:Write,
+#                               Pull requests:Write, Administration:Write —
+#                               Administration is the permission that covers
+#                               creating repository rulesets)
+#
+# It creates the `copilot_code_review` ruleset that auto-requests a Copilot
+# review on every push to any PR branch — which is the pivot the loop in
+# claude-fix-copilot-review.yml depends on. After this runs successfully once,
+# the workflow files alone drive the loop; you never touch the web UI.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  create-ruleset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required secrets are present
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          COPILOT_LOOP_PAT: ${{ secrets.COPILOT_LOOP_PAT }}
+        run: |
+          set -eu
+          missing=0
+          if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+            echo "::error::CLAUDE_CODE_OAUTH_TOKEN secret is not set. Create it at Settings → Secrets and variables → Actions." >&2
+            missing=1
+          fi
+          if [ -z "${COPILOT_LOOP_PAT:-}" ]; then
+            echo "::error::COPILOT_LOOP_PAT secret is not set. Create a fine-grained PAT scoped to this repo (Contents:Write, Pull requests:Write, Administration:Write) and add it as a secret." >&2
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Create or update copilot_code_review ruleset
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_LOOP_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          name="Copilot auto review for all branches"
+          payload=$(cat <<'JSON'
+          {
+            "name": "Copilot auto review for all branches",
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": { "ref_name": { "exclude": [], "include": ["~DEFAULT_BRANCH", "~ALL"] } },
+            "rules": [
+              { "type": "deletion" },
+              { "type": "non_fast_forward" },
+              { "type": "copilot_code_review", "parameters": { "review_on_push": true, "review_draft_pull_requests": false } }
+            ]
+          }
+          JSON
+          )
+          existing_id=$(gh api "repos/$REPO/rulesets" --jq ".[] | select(.name==\"$name\") | .id" | head -n1 || true)
+          if [ -n "$existing_id" ]; then
+            echo "Ruleset already exists (id=$existing_id) — updating in place."
+            printf '%s' "$payload" | gh api --method PUT "repos/$REPO/rulesets/$existing_id" --input -
+          else
+            echo "Creating new ruleset."
+            printf '%s' "$payload" | gh api --method POST "repos/$REPO/rulesets" --input -
+          fi
+          echo "Done. The Copilot ↔ Claude loop is now active for this repo."

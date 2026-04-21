@@ -1,0 +1,151 @@
+name: Claude Fix Copilot Review
+
+# The fix half of the Copilot ↔ Claude review loop. Fires whenever the Copilot
+# Code Review Agent submits a review, lets Claude address the feedback, and
+# pushes the fixes back to the PR branch. The push is attributed to the
+# COPILOT_LOOP_PAT owner so the `copilot_code_review` ruleset (see
+# setup-copilot-loop.yml) fires and requests the next Copilot review.
+#
+# Portability: no repo-specific values here. Run setup-copilot-loop.yml once
+# after adding the two secrets and this workflow drives the loop on any repo.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+env:
+  # Hard cap on Copilot review iterations per PR. Once Copilot has submitted
+  # this many reviews, Claude stops auto-fixing and asks for manual review.
+  MAX_COPILOT_ITERATIONS: 5
+
+jobs:
+  fix-copilot-review:
+    # Only run when the Copilot Code Review Agent is the reviewer, and skip
+    # fork PRs — we need write access to the PR branch to push fixes.
+    # Note: the webhook payload reports the login as 'Copilot', while the REST
+    # API returns 'copilot-pull-request-reviewer[bot]'. Match both.
+    if: |
+      (github.event.review.user.login == 'Copilot' ||
+       github.event.review.user.login == 'copilot-pull-request-reviewer[bot]') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Verify COPILOT_LOOP_PAT secret is configured
+        env:
+          COPILOT_LOOP_PAT: ${{ secrets.COPILOT_LOOP_PAT }}
+        run: |
+          if [ -z "${COPILOT_LOOP_PAT:-}" ]; then
+            echo "::error::COPILOT_LOOP_PAT secret is missing. Add it and run the 'Setup Copilot ↔ Claude loop' workflow once — see .github/COPILOT_LOOP.md." >&2
+            exit 1
+          fi
+
+      - name: Check Copilot iteration cap
+        id: cap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          count=$(gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+            --jq '[.[] | select(.user.login == "copilot-pull-request-reviewer[bot]")] | length' \
+            | awk '{s+=$1} END {print s+0}')
+          echo "Copilot reviews so far: $count (cap: $MAX_COPILOT_ITERATIONS)"
+          if [ "$count" -ge "$MAX_COPILOT_ITERATIONS" ]; then
+            gh pr comment ${{ github.event.pull_request.number }} --body \
+              "Claude auto-fix stopped after $count Copilot review iterations (cap: $MAX_COPILOT_ITERATIONS). Remaining feedback needs manual attention."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout PR head branch
+        if: steps.cap.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          # Push as the PAT owner (not github-actions[bot]) so the
+          # copilot_code_review ruleset actually fires on Claude's pushes.
+          # Bot-authored pushes are silently ignored by the ruleset, which
+          # breaks the loop.
+          token: ${{ secrets.COPILOT_LOOP_PAT }}
+
+      - name: Derive git identity from PAT owner
+        if: steps.cap.outputs.skip != 'true'
+        # Attribute commits to the PAT owner via their GitHub noreply email so
+        # they show up as regular user-authored commits on the PR timeline.
+        # Derived at runtime so this file is portable across repos/owners.
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_LOOP_PAT }}
+        run: |
+          set -euo pipefail
+          owner_json=$(gh api /user)
+          login=$(jq -r '.login' <<<"$owner_json")
+          id=$(jq -r '.id' <<<"$owner_json")
+          name=$(jq -r '.name // .login' <<<"$owner_json")
+          git config user.name "$name"
+          git config user.email "${id}+${login}@users.noreply.github.com"
+
+      # We intentionally use the sub-path `base-action` instead of the
+      # top-level `anthropics/claude-code-action@v1`. The top-level action's
+      # `checkHumanActor` unconditionally calls `GET /users/<actor>` before
+      # consulting `allowed_bots`, and `GET /users/Copilot` returns 404
+      # (Copilot's app slug is `copilot-pull-request-reviewer[bot]`; the
+      # bare login `Copilot` is not resolvable via the Users endpoint). That
+      # crash happens even when `allowed_non_write_users` has already
+      # bypassed the earlier permission check. Tracking upstream in
+      # anthropics/claude-code-action#1133, #1018; PR #1144 has a fix that is
+      # not yet merged. The base-action skips all actor/permission checks
+      # and just runs Claude Code with our prompt — the job-level `if:`
+      # already restricts execution to Copilot reviews on same-repo PRs.
+      - name: Run Claude Code to address Copilot review
+        if: steps.cap.outputs.skip != 'true'
+        uses: anthropics/claude-code-action/base-action@v1
+        env:
+          # Use the PAT so Claude's `gh api` calls (inline review replies,
+          # PR comments, etc.) are attributed to the PAT owner instead of
+          # github-actions[bot]. Matches the git push identity set above.
+          GH_TOKEN: ${{ secrets.COPILOT_LOOP_PAT }}
+          GITHUB_TOKEN: ${{ secrets.COPILOT_LOOP_PAT }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            The GitHub Copilot Code Review Agent just submitted a review on PR #${{ github.event.pull_request.number }}
+            (review id ${{ github.event.review.id }}). Address its feedback so that the Copilot ↔ Claude
+            review-fix loop can continue until Copilot has no more issues.
+
+            1. Fetch the review body and all inline comments attached to it:
+                 gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/${{ github.event.review.id }}
+                 gh api --paginate repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments
+               Only act on inline comments whose `pull_request_review_id` equals ${{ github.event.review.id }}.
+
+            2. For each comment, decide whether the suggestion is valid:
+               - If it is a legitimate bug, code smell, or style issue, fix it by editing the code on the PR branch.
+               - If it is a false positive, leave the code alone and reply to that specific comment explaining why.
+
+            3. Before committing, run the project checks that apply to the files you touched.
+               For this repo that means `ego_sdk/flutter/bin/flutter analyze` on Dart changes and
+               `ego_sdk/flutter/bin/flutter test` if tests cover the code you edited. If you are
+               running this workflow on a different repo, substitute the project's own check commands.
+
+            4. Commit each logical group of fixes with a message like
+               `fix: address Copilot review feedback on <topic>` and push to the PR branch.
+               Do not force-push, do not amend existing commits, and do not resolve review conversations.
+
+            5. Do NOT request a Copilot re-review yourself. The repo has a `copilot_code_review`
+               ruleset with `review_on_push: true` (created by setup-copilot-loop.yml), so any
+               push you make here will automatically trigger a fresh Copilot review, which in
+               turn re-triggers this workflow. If you pushed at least one commit in step 4, the
+               loop continues on its own; if you pushed nothing (all comments were false positives
+               or the review was purely approving), the loop terminates naturally — do not post
+               an empty review or comment.
+
+            A workflow-level cap (MAX_COPILOT_ITERATIONS = ${{ env.MAX_COPILOT_ITERATIONS }}) will stop
+            this job from running after too many Copilot review rounds, so you do not need to track that yourself.
+          claude_args: '--allowed-tools Bash(gh:*),Bash(git:*),Bash(ego_sdk/flutter/bin/flutter:*),Edit,Write,Read,Grep,Glob'
