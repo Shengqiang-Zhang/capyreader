@@ -44,17 +44,47 @@ function setupImageLoadHandler(img) {
     return;
   }
 
-  img.onload = () => img.classList.add("loaded");
-  img.onerror = () => img.classList.add("loaded");
+  const markLoaded = () => img.classList.add("loaded");
+  img.addEventListener("load", markLoaded, { once: true });
+  img.addEventListener("error", markLoaded, { once: true });
 
   // Check after attaching - catches race condition
   if (img.complete) {
-    img.classList.add("loaded");
+    markLoaded();
   }
 }
 
 function addImageLoadListeners() {
   [...document.getElementsByTagName("img")].forEach(setupImageLoadHandler);
+}
+
+// WebView sometimes finishes an image's network fetch without firing `load` or
+// `error` (seen with lazy-loaded feed images and cache hits). Without a
+// fallback these stay at opacity:0, making it look like rendering failed. Poll
+// every img.complete state until all are resolved or the timeout fires.
+function reconcileImageLoadState() {
+  const deadline = Date.now() + 30000;
+  const interval = setInterval(() => {
+    const pending = /** @type {NodeListOf<HTMLImageElement>} */ (
+      document.querySelectorAll("img:not(.loaded)")
+    );
+    let outstanding = 0;
+    pending.forEach((img) => {
+      if (img.complete) {
+        img.classList.add("loaded");
+      } else {
+        outstanding += 1;
+      }
+    });
+    if (outstanding === 0 || Date.now() > deadline) {
+      clearInterval(interval);
+      if (Date.now() > deadline) {
+        document
+          .querySelectorAll("img:not(.loaded)")
+          .forEach((img) => img.classList.add("loaded"));
+      }
+    }
+  }, 500);
 }
 
 function observeImages() {
@@ -369,6 +399,7 @@ window.onload = () => {
   addImageClickListeners();
   addImageLoadListeners();
   observeImages();
+  reconcileImageLoadState();
   addEmbedListeners();
   configureVideoTags();
   Android.requestAudioState();
