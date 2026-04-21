@@ -136,7 +136,10 @@ jobs:
                components and typically fail on license acceptance — do NOT run it here).
                - Kotlin/Android changes: rely on the repo's existing `test.yml` CI workflow to
                  validate the build after you push. Do not invoke `./gradlew` from this job.
-                 Limit yourself to static reasoning (read the code, check types by inspection).
+                 Limit yourself to static reasoning (read the code, check types by inspection)
+                 and, at most, `./gradlew help` or `./gradlew :<module>:tasks --offline` as a
+                 sanity check — and even those only if you can confirm the Gradle daemon starts
+                 within a minute. If in doubt, skip the check entirely and push; CI will catch it.
                - `.js` / `.liquid` asset changes: run `make` to recompile assets, then `make check`
                  to typecheck. These do not need the Android SDK and are safe to run here.
                If you are running this workflow on a different repo, substitute the project's own

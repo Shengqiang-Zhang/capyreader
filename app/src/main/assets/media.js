@@ -45,8 +45,8 @@ function setupImageLoadHandler(img) {
   }
 
   const markLoaded = () => img.classList.add("loaded");
-  img.addEventListener("load", markLoaded, { once: true });
-  img.addEventListener("error", markLoaded, { once: true });
+  img.addEventListener("load", markLoaded);
+  img.addEventListener("error", markLoaded);
 
   // Check after attaching - catches race condition
   if (img.complete) {
