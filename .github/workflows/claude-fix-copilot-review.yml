@@ -107,6 +107,7 @@ jobs:
       - name: Run Claude Code to address Copilot review
         if: steps.cap.outputs.skip != 'true'
         uses: anthropics/claude-code-action/base-action@v1
+        timeout-minutes: 30
         env:
           # Use the PAT so Claude's `gh api` calls (inline review replies,
           # PR comments, etc.) are attributed to the PAT owner instead of
@@ -129,17 +130,20 @@ jobs:
                - If it is a legitimate bug, code smell, or style issue, fix it by editing the code on the PR branch.
                - If it is a false positive, leave the code alone and reply to that specific comment explaining why.
 
-            3. Before committing, run the project checks that apply to the files you touched.
-               For this repo (Capy Reader, an Android app) that means:
-               - Kotlin/Android changes: `./gradlew assembleFreeDebug` to verify the build compiles,
-                 and `./gradlew :<module>:testDebugUnitTest --tests <FQN>` for single tests that cover
-                 the code you edited (e.g. `:capy`, `:feedbinclient`, `:readerclient`, `:feedfinder`,
-                 `:rssparser`). Use `make test` only if your changes span modules broadly enough to
-                 justify the full Fastlane run.
+            3. Before committing, run ONLY the cheap checks that can realistically finish in this
+               runner (no Android SDK is installed and no Gradle cache is warmed, so a cold
+               `./gradlew assembleFreeDebug` will hang for tens of minutes downloading SDK
+               components and typically fail on license acceptance — do NOT run it here).
+               - Kotlin/Android changes: rely on the repo's existing `test.yml` CI workflow to
+                 validate the build after you push. Do not invoke `./gradlew` from this job.
+                 Limit yourself to static reasoning (read the code, check types by inspection)
+                 and, at most, `./gradlew help` or `./gradlew :<module>:tasks --offline` as a
+                 sanity check — and even those only if you can confirm the Gradle daemon starts
+                 within a minute. If in doubt, skip the check entirely and push; CI will catch it.
                - `.js` / `.liquid` asset changes: run `make` to recompile assets, then `make check`
-                 to typecheck.
+                 to typecheck. These do not need the Android SDK and are safe to run here.
                If you are running this workflow on a different repo, substitute the project's own
-               check commands.
+               lightweight check commands — never a full Android build.
 
             4. Commit each logical group of fixes with a message like
                `fix: address Copilot review feedback on <topic>` and push to the PR branch.
@@ -153,7 +157,7 @@ jobs:
 
             A workflow-level cap (MAX_COPILOT_ITERATIONS = ${{ env.MAX_COPILOT_ITERATIONS }}) will stop
             this job from running after too many Copilot review rounds, so you do not need to track that yourself.
-          claude_args: '--allowed-tools Bash(gh:*),Bash(git:*),Bash(./gradlew:*),Bash(make:*),Edit,Write,Read,Grep,Glob'
+          claude_args: '--allowed-tools Bash(gh:*),Bash(git:*),Bash(make:*),Edit,Write,Read,Grep,Glob'
 
       # The `copilot_code_review` ruleset's `review_on_push` does NOT fire on
       # pushes originating from a GitHub Actions runner, even when authenticated
