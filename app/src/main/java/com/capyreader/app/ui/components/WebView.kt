@@ -129,13 +129,18 @@ class AccompanistWebViewClient(
             )
             val responseHeaders = response.headers.toMap() + corsHeaders
 
+            val body = response.body ?: run {
+                response.close()
+                return null
+            }
+
             WebResourceResponse(
                 mimeType,
                 encoding,
                 response.code,
                 response.message.ifEmpty { "OK" },
                 responseHeaders,
-                response.body.byteStream()
+                body.byteStream()
             )
         } catch (e: Exception) {
             response.close()
@@ -156,13 +161,17 @@ class AccompanistWebViewClient(
 
     private fun isTextMimeType(mimeType: String) =
         mimeType.startsWith("text/") ||
-            mimeType in setOf(
-                "application/json",
-                "application/javascript",
-                "application/ecmascript",
-                "application/xml",
-            ) ||
+            mimeType in supportedTextMimeTypes ||
             (mimeType.startsWith("application/") && (mimeType.endsWith("+xml") || mimeType.endsWith("+json")))
+
+    companion object {
+        private val supportedTextMimeTypes = setOf(
+            "application/json",
+            "application/javascript",
+            "application/ecmascript",
+            "application/xml",
+        )
+    }
 }
 
 @Stable
