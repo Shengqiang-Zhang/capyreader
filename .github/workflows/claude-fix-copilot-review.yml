@@ -130,9 +130,17 @@ jobs:
                - If it is a false positive, leave the code alone and reply to that specific comment explaining why.
 
             3. Before committing, run the project checks that apply to the files you touched.
-               For this repo that means `ego_sdk/flutter/bin/flutter analyze` on Dart changes and
-               `ego_sdk/flutter/bin/flutter test` if tests cover the code you edited. If you are
-               running this workflow on a different repo, substitute the project's own check commands.
+               For this repo that means:
+               - Kotlin/Java changes: run the relevant module's unit tests with
+                 `./gradlew :<module>:testDebugUnitTest --tests <FQCN>` (e.g.
+                 `./gradlew :capy:testDebugUnitTest --tests com.jocmp.capy.persistence.ArticleRecordsTest`).
+                 If your change is broad or you are unsure which tests cover it, run
+                 `./gradlew assembleFreeDebug` to at least confirm the app still compiles.
+               - `.js` or `.liquid` template changes under `capy/src/main/assets` (or similar):
+                 run `make` to recompile the bundled assets and `make check` to typecheck.
+               Avoid running the full `make test` suite unless strictly necessary — it is slow.
+               If you are running this workflow on a different repo, substitute the project's
+               own check commands.
 
             4. Commit each logical group of fixes with a message like
                `fix: address Copilot review feedback on <topic>` and push to the PR branch.
@@ -148,4 +156,4 @@ jobs:
 
             A workflow-level cap (MAX_COPILOT_ITERATIONS = ${{ env.MAX_COPILOT_ITERATIONS }}) will stop
             this job from running after too many Copilot review rounds, so you do not need to track that yourself.
-          claude_args: '--allowed-tools Bash(gh:*),Bash(git:*),Bash(ego_sdk/flutter/bin/flutter:*),Edit,Write,Read,Grep,Glob'
+          claude_args: '--allowed-tools Bash(gh:*),Bash(git:*),Bash(./gradlew:*),Bash(make:*),Edit,Write,Read,Grep,Glob'
