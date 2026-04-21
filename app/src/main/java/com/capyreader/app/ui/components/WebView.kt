@@ -91,8 +91,8 @@ class AccompanistWebViewClient(
      * requests (Issue #1616) and Referer headers for media CDNs (Issue #1878)
      */
     private fun proxyRequest(request: WebResourceRequest): WebResourceResponse? {
-        return try {
-            val url = request.url.toString()
+        val url = request.url.toString()
+        val response = try {
             val referer = WebRequestProxyPolicy.refererFor(url, request, pageUrl)
             val okHttpRequest = Request.Builder()
                 .url(url)
@@ -107,14 +107,20 @@ class AccompanistWebViewClient(
                 }
                 .build()
 
-            val response = httpClient.newCall(okHttpRequest).execute()
+            httpClient.newCall(okHttpRequest).execute()
+        } catch (e: Exception) {
+            CapyLog.error("webview_intercept_request", e, mapOf("url" to url))
+            return null
+        }
+
+        return try {
             val contentType = response.header("Content-Type") ?: "text/html"
             val mimeType = contentType.substringBefore(";").trim()
-
-            val charset = contentType
-                .substringAfter("charset=", "UTF-8")
+            val encoding = contentType
+                .substringAfter("charset=", "")
                 .substringBefore(";")
                 .trim()
+                .ifEmpty { if (mimeType.startsWith("text/")) "UTF-8" else null }
 
             val corsHeaders = mapOf(
                 "Access-Control-Allow-Origin" to "*",
@@ -125,14 +131,15 @@ class AccompanistWebViewClient(
 
             WebResourceResponse(
                 mimeType,
-                charset,
+                encoding,
                 response.code,
                 response.message.ifEmpty { "OK" },
                 responseHeaders,
                 response.body.byteStream()
             )
         } catch (e: Exception) {
-            CapyLog.error("webview_intercept_request", e)
+            response.close()
+            CapyLog.error("webview_intercept_response", e, mapOf("url" to url))
             null
         }
     }

@@ -9,8 +9,8 @@
     "moduleResolution": "bundler"
   },
   "include": [
-    "capy/src/main/assets/media.js",
-    "capy/src/main/assets/full-content.js",
+    "app/src/main/assets/media.js",
+    "app/src/main/assets/full-content.js",
     "types.d.ts"
   ]
 }
