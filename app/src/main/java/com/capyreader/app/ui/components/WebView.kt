@@ -120,7 +120,7 @@ class AccompanistWebViewClient(
                 .substringAfter("charset=", "")
                 .substringBefore(";")
                 .trim()
-                .ifEmpty { if (mimeType.startsWith("text/")) "UTF-8" else null }
+                .ifEmpty { if (isTextMimeType(mimeType)) "UTF-8" else null }
 
             val corsHeaders = mapOf(
                 "Access-Control-Allow-Origin" to "*",
@@ -153,6 +153,16 @@ class AccompanistWebViewClient(
 
         return true
     }
+
+    private fun isTextMimeType(mimeType: String) =
+        mimeType.startsWith("text/") ||
+            mimeType in setOf(
+                "application/json",
+                "application/javascript",
+                "application/ecmascript",
+                "application/xml",
+            ) ||
+            (mimeType.startsWith("application/") && (mimeType.endsWith("+xml") || mimeType.endsWith("+json")))
 }
 
 @Stable
