@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type RefObject } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -14,12 +14,14 @@ import { useAuth } from "@/auth/AuthContext";
 import { useCategories, useFeedCounters, useFeeds, useMe } from "@/api/queries";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { SearchBar } from "@/components/SearchBar";
 import { cn } from "@/lib/cn";
 import type { Category, Feed } from "@/api/types";
 import { useSelection, type Scope } from "@/hooks/useSelection";
 
 interface SidebarProps {
   className?: string;
+  searchInputRef?: RefObject<HTMLInputElement>;
 }
 
 interface CategoryGroup {
@@ -28,7 +30,7 @@ interface CategoryGroup {
   unread: number;
 }
 
-export default function Sidebar({ className }: SidebarProps) {
+export default function Sidebar({ className, searchInputRef }: SidebarProps) {
   const { signOut } = useAuth();
   const me = useMe();
   const categoriesQ = useCategories();
@@ -77,23 +79,26 @@ export default function Sidebar({ className }: SidebarProps) {
         className,
       )}
     >
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex flex-col">
-          <span className="font-display text-base font-semibold tracking-tight">
-            Capy Reader
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {me.data?.username ?? "…"}
-          </span>
+      <div className="flex flex-col gap-2 border-b px-3 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="font-display text-base font-semibold tracking-tight">
+              Capy Reader
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {me.data?.username ?? "…"}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Sign out"
+            onClick={signOut}
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Sign out"
-          onClick={signOut}
-        >
-          <LogOut className="h-4 w-4" />
-        </Button>
+        <SearchBar ref={searchInputRef} />
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2 text-sm">
