@@ -1,0 +1,93 @@
+name: Deploy web client
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "web/**"
+      - ".github/workflows/web-deploy.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - main
+    paths:
+      - "web/**"
+      - ".github/workflows/web-deploy.yml"
+
+# Cancel redundant in-flight runs when a PR is updated.
+concurrency:
+  group: web-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    if: github.event_name == 'push' || github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    name: Build and deploy
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+        env:
+          VITE_DEFAULT_MINIFLUX_URL: ${{ vars.VITE_DEFAULT_MINIFLUX_URL }}
+
+      - name: Stage build output for SWA upload
+        # The SWA upload action has a 250 MiB content cap and, with
+        # skip_app_build=true, tends to ship everything under
+        # app_location (including node_modules). Copying only the Vite
+        # output keeps the upload at ~400 kB.
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p .swa-upload
+          cp -a web/dist/. .swa-upload/
+
+      - name: Deploy to Azure Static Web Apps
+        id: deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: ".swa-upload"
+          skip_app_build: true
+          skip_api_build: true
+
+  close-pr:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    name: Close pull request preview
+    steps:
+      - name: Close preview deployment
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: "close"

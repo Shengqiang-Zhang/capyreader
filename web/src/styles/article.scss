@@ -1,0 +1,353 @@
+// Ported from article_forge/style/stylesheet.scss, trimmed for browser use.
+// Fonts are served from the parent Vite dev / static-web-app origin under
+// /fonts/. Audio-enclosure and Android-bridge styles are omitted.
+
+$font-families: (
+  "default": sans-serif,
+  "system_ui": unquote(
+      '"Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+    ),
+  "atkinson_hyperlegible": "Atkinson Hyperlegible",
+  "inter": "Inter",
+  "jost": "Jost",
+  "literata": "Literata",
+  "poppins": "Poppins",
+  "vollkorn": "Vollkorn",
+);
+
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  font-style: normal;
+  font-weight: 400 700;
+  src: url("/fonts/atkinson_hyperlegible.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("/fonts/inter.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Jost";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("/fonts/jost.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Literata";
+  font-style: normal;
+  font-weight: 200 900;
+  src: url("/fonts/literata.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Poppins";
+  font-style: normal;
+  font-weight: 100 900;
+  src: url("/fonts/poppins.ttf") format("truetype");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Vollkorn";
+  font-style: normal;
+  font-weight: 400 900;
+  src: url("/fonts/vollkorn.ttf") format("truetype");
+  font-display: swap;
+}
+
+:root {
+  --corner-radius: 0.375rem;
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--color-secondary) 50%, transparent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Literata", Georgia, serif;
+  word-wrap: break-word;
+  margin: var(--article-top-margin) 0 0 0;
+  padding: 2rem 1.25rem 6rem;
+  background-color: var(--color-surface);
+  color: var(--color-on-surface);
+
+  @media only screen and (min-width: 640px) {
+    padding: 3rem 3.5rem 8rem;
+  }
+}
+
+a {
+  &:link,
+  &:visited {
+    color: var(--color-primary);
+  }
+}
+
+blockquote {
+  margin: 1em 0;
+  padding: 0.25em 0 0.25em 1em;
+  border-left: 3px solid var(--color-on-surface-variant);
+  color: var(--color-on-surface-variant);
+}
+
+code,
+pre {
+  background: var(--color-surface-container);
+  border-radius: var(--corner-radius);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+code {
+  padding: 0.15em 0.35em;
+}
+
+pre {
+  white-space: var(--pre-white-space);
+  overflow-x: auto;
+  padding: 1em;
+
+  code {
+    background: transparent;
+    padding: 0;
+  }
+}
+
+img,
+figure,
+video,
+object {
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+img {
+  opacity: 0;
+  transition: opacity 0.12s ease-in;
+  display: block;
+
+  &.loaded {
+    opacity: 1;
+  }
+}
+
+figure {
+  margin-bottom: 1em;
+  line-height: 1.25em;
+  font-size: calc(var(--article-font-size) * 0.85);
+  color: var(--color-on-surface-variant);
+
+  figcaption {
+    padding-top: 0.35em;
+  }
+
+  blockquote {
+    font-size: var(--article-font-size);
+    color: var(--color-on-surface);
+    line-height: normal;
+  }
+}
+
+.iframe-embed {
+  display: block;
+  position: relative;
+  width: 100%;
+  border: 0;
+  border-radius: var(--corner-radius);
+  margin: 1em 0;
+  text-decoration: none;
+
+  .iframe-embed__image {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: var(--corner-radius);
+  }
+
+  .iframe-embed__play-button {
+    background-color: rgba(0, 0, 0, 0.62);
+    border-radius: 50%;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: 0;
+    margin: auto;
+    width: 4rem;
+    aspect-ratio: 1;
+
+    &::after {
+      content: "";
+      display: block;
+      position: absolute;
+      inset: 0;
+      border: 14px solid transparent;
+      border-left: 20px solid #fff;
+      transform: translateX(30%) translateY(10%);
+    }
+  }
+}
+
+iframe {
+  max-width: 100%;
+  margin: 1em auto;
+  border: 0;
+
+  &[src*="youtube-nocookie.com"],
+  &[src*="youtube.com"],
+  &[src*="youtu.be"] {
+    background-color: #000000;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: var(--corner-radius);
+  }
+}
+
+video {
+  width: 100%;
+  background-color: black;
+  border-radius: var(--corner-radius);
+}
+
+ul:has(img) {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+.table__wrapper {
+  width: 100%;
+  overflow-x: var(--table-overflow-x, auto);
+  margin: 1em 0;
+
+  table {
+    table-layout: fixed;
+    width: 100%;
+    border-spacing: 0;
+    border-collapse: collapse;
+  }
+
+  table table {
+    table-layout: auto;
+    margin-bottom: 0;
+    border: none;
+  }
+
+  td,
+  th {
+    border: 1px solid var(--color-surface-variant);
+    padding: 0.375rem 0.5rem;
+    text-align: left;
+    word-wrap: break-word;
+  }
+
+  td:empty:not(:first-child) {
+    border: none;
+    padding: 0;
+    display: none;
+  }
+
+  td:has(pre) {
+    border: none;
+    padding: 0;
+  }
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--color-surface-variant);
+  margin: 2em 0;
+}
+
+.article__header {
+  display: block;
+  max-width: 42rem;
+  margin: 0 auto 1.25rem;
+  text-align: var(--article-title-text-align);
+
+  a {
+    &:link,
+    &:visited {
+      color: inherit;
+      text-decoration: none;
+    }
+  }
+}
+
+.article__title {
+  margin: 0;
+  padding-bottom: 0.5rem;
+  font-size: var(--article-title-font-size);
+  line-height: 1.15;
+
+  &:empty {
+    padding: 0;
+    margin: 0;
+  }
+}
+
+.article__byline,
+.article__feed {
+  font-size: 0.875rem;
+  color: var(--color-on-surface-variant);
+}
+
+.article__feed {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+}
+
+.article__body {
+  font-size: var(--article-font-size);
+}
+
+#article-body-content {
+  line-height: var(--article-line-height);
+  max-width: 42rem;
+  margin: 0 auto;
+
+  > * + * {
+    margin-top: 1em;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Jost", system-ui, sans-serif;
+    line-height: 1.25;
+    margin-top: 1.5em;
+  }
+
+  img {
+    background-color: var(--color-surface-container-highest);
+    border-radius: 0.25rem;
+  }
+}
+
+@each $family, $value in $font-families {
+  .article__body--font-#{$family} {
+    font-family: $value;
+  }
+}
+
+@each $family, $value in $font-families {
+  .article__header--font-#{$family} {
+    font-family: $value;
+  }
+}
