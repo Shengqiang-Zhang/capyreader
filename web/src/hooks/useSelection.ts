@@ -46,7 +46,7 @@ export function useSelection() {
     return {
       scope,
       status: status === "all" ? "all" : "unread",
-      entryId: entryId && Number.isFinite(entryId) ? entryId : null,
+      entryId: entryId !== null && Number.isFinite(entryId) && entryId > 0 ? entryId : null,
       search: search && search.length > 0 ? search : null,
     };
   }, [sp]);
