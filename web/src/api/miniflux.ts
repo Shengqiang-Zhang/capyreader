@@ -174,4 +174,34 @@ export const minifluxApi = {
 
   deleteCategory: (creds: MinifluxCredentials, categoryId: number) =>
     request<void>(creds, `/v1/categories/${categoryId}`, { method: "DELETE" }),
+
+  importOpml: async (creds: MinifluxCredentials, xml: string) => {
+    const response = await fetch(`${creds.baseUrl}/v1/import`, {
+      method: "POST",
+      headers: {
+        "X-Auth-Token": creds.token,
+        "Content-Type": "application/xml",
+      },
+      body: xml,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new MinifluxError(response.status, text || "OPML import failed", text);
+    }
+  },
+
+  exportOpml: async (creds: MinifluxCredentials) => {
+    const response = await fetch(`${creds.baseUrl}/v1/export`, {
+      headers: { "X-Auth-Token": creds.token },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new MinifluxError(
+        response.status,
+        text || "OPML export failed",
+        text,
+      );
+    }
+    return response.text();
+  },
 };

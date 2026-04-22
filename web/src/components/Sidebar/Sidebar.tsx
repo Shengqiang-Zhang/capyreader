@@ -1,4 +1,4 @@
-import { useMemo, type RefObject } from "react";
+import { useMemo, useState, type RefObject } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -7,14 +7,15 @@ import {
   Loader2,
   LogOut,
   Rss,
+  Settings,
   Star,
 } from "lucide-react";
-import { useState } from "react";
 import { useAuth } from "@/auth/AuthContext";
 import { useCategories, useFeedCounters, useFeeds, useMe } from "@/api/queries";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SearchBar } from "@/components/SearchBar";
+import ManageFeedsDialog from "@/features/subscriptions/ManageFeedsDialog";
 import { cn } from "@/lib/cn";
 import type { Category, Feed } from "@/api/types";
 import { useSelection, type Scope } from "@/hooks/useSelection";
@@ -37,6 +38,7 @@ export default function Sidebar({ className, searchInputRef }: SidebarProps) {
   const feedsQ = useFeeds();
   const countersQ = useFeedCounters();
   const { selection, setScope } = useSelection();
+  const [manageOpen, setManageOpen] = useState(false);
 
   const groups = useMemo<CategoryGroup[]>(() => {
     if (!categoriesQ.data || !feedsQ.data) return [];
@@ -89,17 +91,31 @@ export default function Sidebar({ className, searchInputRef }: SidebarProps) {
               {me.data?.username ?? "…"}
             </span>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Sign out"
-            onClick={signOut}
-          >
-            <LogOut className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Manage feeds"
+              onClick={() => setManageOpen(true)}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Sign out"
+              onClick={signOut}
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         <SearchBar ref={searchInputRef} />
       </div>
+      <ManageFeedsDialog
+        open={manageOpen}
+        onClose={() => setManageOpen(false)}
+      />
 
       <nav className="flex-1 overflow-y-auto py-2 text-sm">
         <SidebarItem
