@@ -7,6 +7,8 @@ export interface ArticleAppearance {
   fontFamily: FontFamilyKey;
   titleFontFamily: FontFamilyKey;
   fontSize: FontSizeKey;
+  customFontFamily: string | null;
+  customTitleFontFamily: string | null;
 }
 
 export const FONT_FAMILY_OPTIONS: Array<{
@@ -42,7 +44,18 @@ const DEFAULT_APPEARANCE: ArticleAppearance = {
   fontFamily: "literata",
   titleFontFamily: "jost",
   fontSize: "md",
+  customFontFamily: null,
+  customTitleFontFamily: null,
 };
+
+const MAX_CUSTOM_FAMILY_LENGTH = 200;
+
+function normalizeCustom(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_CUSTOM_FAMILY_LENGTH) return null;
+  return trimmed;
+}
 
 const STORAGE_KEY = "capy.article.appearance";
 const CHANGE_EVENT = "capy:article-appearance";
@@ -69,6 +82,8 @@ function readFromStorage(): ArticleAppearance {
         parsed.fontSize && VALID_SIZE_KEYS.has(parsed.fontSize)
           ? parsed.fontSize
           : DEFAULT_APPEARANCE.fontSize,
+      customFontFamily: normalizeCustom(parsed.customFontFamily),
+      customTitleFontFamily: normalizeCustom(parsed.customTitleFontFamily),
     };
   } catch {
     return DEFAULT_APPEARANCE;
@@ -118,10 +133,14 @@ export function useArticleAppearance() {
   // before localStorage was readable (e.g. first render on the server path).
   useEffect(() => {
     const fresh = readFromStorage();
+    const prev = cached;
     if (
-      fresh.fontFamily !== cached?.fontFamily ||
-      fresh.titleFontFamily !== cached?.titleFontFamily ||
-      fresh.fontSize !== cached?.fontSize
+      !prev ||
+      fresh.fontFamily !== prev.fontFamily ||
+      fresh.titleFontFamily !== prev.titleFontFamily ||
+      fresh.fontSize !== prev.fontSize ||
+      fresh.customFontFamily !== prev.customFontFamily ||
+      fresh.customTitleFontFamily !== prev.customTitleFontFamily
     ) {
       cached = fresh;
       window.dispatchEvent(new Event(CHANGE_EVENT));
