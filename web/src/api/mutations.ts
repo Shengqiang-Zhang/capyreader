@@ -64,7 +64,9 @@ export function useUpdateEntryStatus() {
         queryClient.setQueryData(["entry", ctx.entry.id], ctx.entry);
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _err, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["entries"] });
+      queryClient.invalidateQueries({ queryKey: ["entry", vars.entryId] });
       queryClient.invalidateQueries({ queryKey: ["counters"] });
     },
   });
@@ -84,15 +86,9 @@ export function useToggleBookmark() {
   const credentials = useCredentials();
   const queryClient = useQueryClient();
 
-  return useMutation<
-    ToggleBookmarkVars,
-    Error,
-    ToggleBookmarkVars,
-    ToggleBookmarkSnapshot
-  >({
+  return useMutation<void, Error, ToggleBookmarkVars, ToggleBookmarkSnapshot>({
     mutationFn: async ({ entryId }) => {
       await minifluxApi.toggleBookmark(credentials, entryId);
-      return { entryId, currentStarred: false };
     },
     onMutate: async ({ entryId, currentStarred }) => {
       const nextStarred = !currentStarred;
@@ -131,6 +127,11 @@ export function useToggleBookmark() {
       if (ctx.entry) {
         queryClient.setQueryData(["entry", ctx.entry.id], ctx.entry);
       }
+    },
+    onSettled: (_data, _err, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["entries"] });
+      queryClient.invalidateQueries({ queryKey: ["entry", vars.entryId] });
+      queryClient.invalidateQueries({ queryKey: ["counters"] });
     },
   });
 }
