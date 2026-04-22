@@ -10,6 +10,8 @@ export interface RenderOptions {
   fontFamily?: FontFamilyKey;
   titleFontFamily?: FontFamilyKey;
   fontSize?: string;
+  customFontFamily?: string | null;
+  customTitleFontFamily?: string | null;
 }
 
 export type FontFamilyKey =
@@ -20,6 +22,40 @@ export type FontFamilyKey =
   | "literata"
   | "poppins"
   | "vollkorn";
+
+const PRESET_FAMILY_FALLBACK: Record<FontFamilyKey, string> = {
+  system_ui:
+    'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  atkinson_hyperlegible: '"Atkinson Hyperlegible", sans-serif',
+  inter: '"Inter", sans-serif',
+  jost: '"Jost", sans-serif',
+  literata: '"Literata", Georgia, serif',
+  poppins: '"Poppins", sans-serif',
+  vollkorn: '"Vollkorn", Georgia, serif',
+};
+
+export function sanitizeCustomFontFamily(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/[^A-Za-z0-9 ,'\-_]/g, "").trim();
+  if (!cleaned) return null;
+  const parts = cleaned
+    .split(",")
+    .map((part) => part.trim().replace(/^['"]+|['"]+$/g, "").trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  return parts.map((p) => (/\s/.test(p) ? `"${p}"` : p)).join(", ");
+}
+
+function buildFontFamilyStyle(
+  custom: string | null | undefined,
+  preset: FontFamilyKey,
+): string {
+  const sanitized = sanitizeCustomFontFamily(custom);
+  if (!sanitized) return "";
+  const fallback = PRESET_FAMILY_FALLBACK[preset];
+  const value = `font-family: ${sanitized}, ${fallback};`;
+  return ` style="${escapeHtml(value)}"`;
+}
 
 interface Palette {
   color_primary: string;
@@ -67,13 +103,17 @@ export function renderArticleSrcDoc(opts: RenderOptions): string {
   const palette = opts.theme === "dark" ? DARK_PALETTE : LIGHT_PALETTE;
 
   const bylineText = opts.entry.author ? opts.entry.author : "";
+  const bodyPreset: FontFamilyKey = opts.fontFamily ?? "literata";
+  const titlePreset: FontFamilyKey = opts.titleFontFamily ?? "jost";
 
   const substitutions: Record<string, string> = {
     ...palette,
     theme: opts.theme,
     color_scheme: opts.theme === "dark" ? "dark" : "light",
-    font_family: opts.fontFamily ?? "literata",
-    title_font_family: opts.titleFontFamily ?? "jost",
+    font_family: bodyPreset,
+    title_font_family: titlePreset,
+    body_font_style: buildFontFamilyStyle(opts.customFontFamily, bodyPreset),
+    title_font_style: buildFontFamilyStyle(opts.customTitleFontFamily, titlePreset),
     font_size: opts.fontSize ?? "1.0625rem",
     title_font_size: "1.875rem",
     title_text_align: "left",

@@ -32,7 +32,7 @@ export const ARTICLE_TEMPLATE = `<!DOCTYPE html>
   <body>
     <article role="main">
       <header>
-        <div class="article__header article__header--font-{{title_font_family}}">
+        <div class="article__header article__header--font-{{title_font_family}}"{{title_font_style}}>
           <a href="{{external_link}}">
             <h1 class="article__title">{{title}}</h1>
           </a>
@@ -40,7 +40,7 @@ export const ARTICLE_TEMPLATE = `<!DOCTYPE html>
           <div class="article__feed">{{feed_name}}</div>
         </div>
       </header>
-      <div class="article__body article__body--font-{{font_family}}">
+      <div class="article__body article__body--font-{{font_family}}"{{body_font_style}}>
         <div id="article-body-content">{{body}}</div>
       </div>
     </article>

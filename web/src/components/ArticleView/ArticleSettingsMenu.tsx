@@ -1,15 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Type } from "lucide-react";
+import { Check, Search, Type, X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import {
   FONT_FAMILY_OPTIONS,
   FONT_SIZE_OPTIONS,
   useArticleAppearance,
 } from "@/hooks/useArticleAppearance";
+import SystemFontPickerDialog from "@/components/ArticleView/SystemFontPickerDialog";
+
+type Target = "body" | "title";
 
 export default function ArticleSettingsMenu() {
   const [open, setOpen] = useState(false);
+  const [browseFor, setBrowseFor] = useState<Target | null>(null);
   const { appearance, setAppearance, reset } = useArticleAppearance();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -45,31 +50,27 @@ export default function ArticleSettingsMenu() {
         <div
           role="dialog"
           aria-label="Article appearance"
-          className="absolute right-0 top-full z-40 mt-2 w-72 rounded-lg border bg-card p-3 text-card-foreground shadow-lg"
+          className="absolute right-0 top-full z-40 mt-2 w-80 rounded-lg border bg-card p-3 text-card-foreground shadow-lg"
         >
-          <OptionSection label="Body font">
-            {FONT_FAMILY_OPTIONS.map((opt) => (
-              <OptionRow
-                key={opt.key}
-                label={opt.label}
-                labelClassName={opt.previewClass}
-                selected={appearance.fontFamily === opt.key}
-                onClick={() => setAppearance({ fontFamily: opt.key })}
-              />
-            ))}
-          </OptionSection>
+          <FontSection
+            label="Body font"
+            selectedPreset={appearance.fontFamily}
+            custom={appearance.customFontFamily}
+            onSelectPreset={(key) => setAppearance({ fontFamily: key })}
+            onCustomChange={(value) => setAppearance({ customFontFamily: value })}
+            onBrowse={() => setBrowseFor("body")}
+          />
 
-          <OptionSection label="Title font">
-            {FONT_FAMILY_OPTIONS.map((opt) => (
-              <OptionRow
-                key={opt.key}
-                label={opt.label}
-                labelClassName={opt.previewClass}
-                selected={appearance.titleFontFamily === opt.key}
-                onClick={() => setAppearance({ titleFontFamily: opt.key })}
-              />
-            ))}
-          </OptionSection>
+          <FontSection
+            label="Title font"
+            selectedPreset={appearance.titleFontFamily}
+            custom={appearance.customTitleFontFamily}
+            onSelectPreset={(key) => setAppearance({ titleFontFamily: key })}
+            onCustomChange={(value) =>
+              setAppearance({ customTitleFontFamily: value })
+            }
+            onBrowse={() => setBrowseFor("title")}
+          />
 
           <OptionSection label="Size">
             <div className="grid grid-cols-4 gap-1">
@@ -98,6 +99,113 @@ export default function ArticleSettingsMenu() {
           </div>
         </div>
       )}
+      <SystemFontPickerDialog
+        open={browseFor !== null}
+        onClose={() => setBrowseFor(null)}
+        title={
+          browseFor === "title"
+            ? "Pick a title font"
+            : "Pick a body font"
+        }
+        onSelect={(family) => {
+          if (browseFor === "title") {
+            setAppearance({ customTitleFontFamily: family });
+          } else if (browseFor === "body") {
+            setAppearance({ customFontFamily: family });
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+interface FontSectionProps {
+  label: string;
+  selectedPreset: (typeof FONT_FAMILY_OPTIONS)[number]["key"];
+  custom: string | null;
+  onSelectPreset: (key: (typeof FONT_FAMILY_OPTIONS)[number]["key"]) => void;
+  onCustomChange: (value: string | null) => void;
+  onBrowse: () => void;
+}
+
+function FontSection({
+  label,
+  selectedPreset,
+  custom,
+  onSelectPreset,
+  onCustomChange,
+  onBrowse,
+}: FontSectionProps) {
+  const [draft, setDraft] = useState(custom ?? "");
+
+  useEffect(() => {
+    setDraft(custom ?? "");
+  }, [custom]);
+
+  const commit = () => {
+    const next = draft.trim();
+    onCustomChange(next.length > 0 ? next : null);
+  };
+
+  const usingCustom = Boolean(custom);
+
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+        {usingCustom && (
+          <button
+            type="button"
+            onClick={() => onCustomChange(null)}
+            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+            Clear custom
+          </button>
+        )}
+      </div>
+
+      <div className="mb-2 flex gap-1">
+        <Input
+          className="h-8 text-xs"
+          placeholder="Type a font name, e.g. Helvetica Neue"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commit();
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          style={
+            usingCustom ? { fontFamily: `"${custom}", inherit` } : undefined
+          }
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onBrowse}
+          aria-label={`Browse installed fonts for ${label}`}
+        >
+          <Search className="h-3.5 w-3.5" />
+          Browse
+        </Button>
+      </div>
+
+      <div className={cn(usingCustom && "opacity-60")}>
+        {FONT_FAMILY_OPTIONS.map((opt) => (
+          <OptionRow
+            key={opt.key}
+            label={opt.label}
+            labelClassName={opt.previewClass}
+            selected={!usingCustom && selectedPreset === opt.key}
+            onClick={() => onSelectPreset(opt.key)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

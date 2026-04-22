@@ -132,6 +132,8 @@ export default function ArticleView() {
           entry={entry}
           fontFamily={appearance.fontFamily}
           titleFontFamily={appearance.titleFontFamily}
+          customFontFamily={appearance.customFontFamily}
+          customTitleFontFamily={appearance.customTitleFontFamily}
           fontSize={fontSizeValue(appearance.fontSize)}
         />
       </div>

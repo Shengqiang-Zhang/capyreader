@@ -7,6 +7,8 @@ interface ArticleFrameProps {
   entry: Entry;
   fontFamily?: FontFamilyKey;
   titleFontFamily?: FontFamilyKey;
+  customFontFamily?: string | null;
+  customTitleFontFamily?: string | null;
   fontSize?: string;
   className?: string;
 }
@@ -20,6 +22,8 @@ export default function ArticleFrame({
   entry,
   fontFamily,
   titleFontFamily,
+  customFontFamily,
+  customTitleFontFamily,
   fontSize,
   className,
 }: ArticleFrameProps) {
@@ -44,9 +48,19 @@ export default function ArticleFrame({
         theme,
         fontFamily,
         titleFontFamily,
+        customFontFamily,
+        customTitleFontFamily,
         fontSize,
       }),
-    [entry, theme, fontFamily, titleFontFamily, fontSize],
+    [
+      entry,
+      theme,
+      fontFamily,
+      titleFontFamily,
+      customFontFamily,
+      customTitleFontFamily,
+      fontSize,
+    ],
   );
 
   return (
