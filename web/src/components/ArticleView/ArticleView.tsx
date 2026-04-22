@@ -1,7 +1,9 @@
-import { ExternalLink, Star } from "lucide-react";
+import { Circle, CircleDot, ExternalLink, Star } from "lucide-react";
 import { useEntry } from "@/api/queries";
+import { useUpdateEntryStatus, useToggleBookmark } from "@/api/mutations";
+import { useAutoMarkRead } from "@/hooks/useAutoMarkRead";
 import { useSelection } from "@/hooks/useSelection";
-import { buttonVariants } from "@/components/ui/Button";
+import { Button, buttonVariants } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
 import { fullDateTime } from "@/lib/time";
@@ -10,6 +12,10 @@ export default function ArticleView() {
   const { selection } = useSelection();
   const entryId = selection.entryId;
   const entryQ = useEntry(entryId ?? 0, entryId !== null);
+  const updateStatus = useUpdateEntryStatus();
+  const toggleBookmark = useToggleBookmark();
+
+  useAutoMarkRead(entryQ.data);
 
   if (entryId === null) {
     return (
@@ -51,6 +57,7 @@ export default function ArticleView() {
   }
 
   const entry = entryQ.data;
+  const isUnread = entry.status === "unread";
 
   return (
     <section className="flex h-full flex-col">
@@ -69,9 +76,41 @@ export default function ArticleView() {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          {entry.starred && (
-            <Star className="h-5 w-5 fill-amber-500 text-amber-500" />
-          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={entry.starred ? "Unstar article" : "Star article"}
+            onClick={() =>
+              toggleBookmark.mutate({
+                entryId: entry.id,
+                currentStarred: entry.starred,
+              })
+            }
+          >
+            <Star
+              className={cn(
+                "h-4 w-4",
+                entry.starred && "fill-amber-500 text-amber-500",
+              )}
+            />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={isUnread ? "Mark as read" : "Mark as unread"}
+            onClick={() =>
+              updateStatus.mutate({
+                entryId: entry.id,
+                status: isUnread ? "read" : "unread",
+              })
+            }
+          >
+            {isUnread ? (
+              <CircleDot className="h-4 w-4 text-primary" />
+            ) : (
+              <Circle className="h-4 w-4" />
+            )}
+          </Button>
           <a
             href={entry.url}
             target="_blank"
