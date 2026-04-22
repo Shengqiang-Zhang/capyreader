@@ -54,7 +54,7 @@ export default function ManageFeedsDialog({
       document.body.appendChild(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 100);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Export failed.");
     }
