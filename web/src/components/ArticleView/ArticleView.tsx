@@ -26,8 +26,7 @@ export default function ArticleView() {
             Pick an article.
           </p>
           <p className="mt-2 text-sm">
-            Articles from the selected feed show up here. Keyboard navigation
-            and rich rendering arrive in later phases.
+            Select an article from the list. Press <kbd className="rounded border bg-muted px-1 py-0.5 font-mono text-xs">?</kbd> to see keyboard shortcuts.
           </p>
         </div>
       </section>
