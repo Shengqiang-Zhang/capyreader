@@ -37,3 +37,35 @@ CORS_ALLOWED_ORIGINS=https://<this-web-app-origin>,http://localhost:5173
 | Name                         | Purpose                                               |
 | ---------------------------- | ----------------------------------------------------- |
 | `VITE_DEFAULT_MINIFLUX_URL`  | Pre-fills the server URL on the login screen.         |
+
+## Deployment
+
+The GitHub workflow at `.github/workflows/web-deploy.yml` builds this
+package and publishes to Azure Static Web Apps on every push to `main`
+that touches `web/**`. Pull requests get an isolated preview URL.
+
+Required secrets / vars:
+
+| Kind   | Name                                  | Purpose                                       |
+| ------ | ------------------------------------- | --------------------------------------------- |
+| secret | `AZURE_STATIC_WEB_APPS_API_TOKEN`     | Deployment token from the Static Web App resource. |
+| var    | `VITE_DEFAULT_MINIFLUX_URL` (optional)| Pre-fills login form with your Miniflux URL.  |
+
+`web/public/staticwebapp.config.json` sets the SPA fallback (so deep
+links like `/?feed=5` resolve to `index.html`) and long-lived caching
+for hashed `/assets/*` and the fonts folder.
+
+## Keyboard shortcuts
+
+| Keys        | Action                     |
+| ----------- | -------------------------- |
+| `j` / `k`   | Next / previous article    |
+| `m`         | Toggle read                |
+| `s`         | Toggle star                |
+| `o`         | Open original in new tab   |
+| `u`         | Back to the article list   |
+| `g i`       | Go to Inbox                |
+| `g s`       | Go to Starred              |
+| `g u` / `g a` | Filter unread / all      |
+| `/`         | Focus search               |
+| `?`         | Show shortcut help         |
