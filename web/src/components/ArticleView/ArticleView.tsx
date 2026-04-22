@@ -2,8 +2,13 @@ import { Circle, CircleDot, ExternalLink, Star } from "lucide-react";
 import { useEntry } from "@/api/queries";
 import { useUpdateEntryStatus, useToggleBookmark } from "@/api/mutations";
 import { useAutoMarkRead } from "@/hooks/useAutoMarkRead";
+import {
+  fontSizeValue,
+  useArticleAppearance,
+} from "@/hooks/useArticleAppearance";
 import { useSelection } from "@/hooks/useSelection";
 import ArticleFrame from "@/components/ArticleView/ArticleFrame";
+import ArticleSettingsMenu from "@/components/ArticleView/ArticleSettingsMenu";
 import { Button, buttonVariants } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
@@ -15,6 +20,7 @@ export default function ArticleView() {
   const entryQ = useEntry(entryId ?? 0, entryId !== null);
   const updateStatus = useUpdateEntryStatus();
   const toggleBookmark = useToggleBookmark();
+  const { appearance } = useArticleAppearance();
 
   useAutoMarkRead(entryQ.data);
 
@@ -74,6 +80,7 @@ export default function ArticleView() {
           </p>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
+          <ArticleSettingsMenu />
           <Button
             variant="ghost"
             size="icon"
@@ -121,7 +128,12 @@ export default function ArticleView() {
         </div>
       </header>
       <div className="flex-1 overflow-hidden">
-        <ArticleFrame entry={entry} />
+        <ArticleFrame
+          entry={entry}
+          fontFamily={appearance.fontFamily}
+          titleFontFamily={appearance.titleFontFamily}
+          fontSize={fontSizeValue(appearance.fontSize)}
+        />
       </div>
     </section>
   );
