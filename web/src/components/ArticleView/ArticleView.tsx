@@ -3,6 +3,7 @@ import { useEntry } from "@/api/queries";
 import { useUpdateEntryStatus, useToggleBookmark } from "@/api/mutations";
 import { useAutoMarkRead } from "@/hooks/useAutoMarkRead";
 import { useSelection } from "@/hooks/useSelection";
+import ArticleFrame from "@/components/ArticleView/ArticleFrame";
 import { Button, buttonVariants } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
@@ -61,21 +62,18 @@ export default function ArticleView() {
 
   return (
     <section className="flex h-full flex-col">
-      <header className="flex items-start justify-between gap-4 border-b px-10 py-5">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+      <header className="flex items-start justify-between gap-4 border-b px-6 py-4">
+        <div className="min-w-0">
+          <p className="truncate text-xs uppercase tracking-wide text-muted-foreground">
             {entry.feed.title}
           </p>
-          <h1 className="mt-1 font-display text-2xl font-semibold leading-tight">
-            {entry.title}
-          </h1>
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {entry.author ? `${entry.author} · ` : ""}
             {fullDateTime(entry.published_at)}
             {entry.reading_time > 0 && ` · ${entry.reading_time} min read`}
           </p>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-shrink-0 items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
@@ -122,12 +120,9 @@ export default function ArticleView() {
           </a>
         </div>
       </header>
-      <article className="flex-1 overflow-y-auto px-10 py-8">
-        <div
-          className="prose prose-slate max-w-3xl font-serif prose-headings:font-display prose-a:text-primary dark:prose-invert"
-          dangerouslySetInnerHTML={{ __html: entry.content }}
-        />
-      </article>
+      <div className="flex-1 overflow-hidden">
+        <ArticleFrame entry={entry} />
+      </div>
     </section>
   );
 }
