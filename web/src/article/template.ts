@@ -3,6 +3,7 @@ export const ARTICLE_TEMPLATE = `<!DOCTYPE html>
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
+    <meta name="referrer" content="no-referrer" />
     <base target="_blank" />
     <style>
       :root {

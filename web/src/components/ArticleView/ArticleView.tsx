@@ -1,6 +1,18 @@
-import { Circle, CircleDot, ExternalLink, Star } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Circle,
+  CircleDot,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Star,
+} from "lucide-react";
 import { useEntry } from "@/api/queries";
-import { useUpdateEntryStatus, useToggleBookmark } from "@/api/mutations";
+import {
+  useFetchFullContent,
+  useToggleBookmark,
+  useUpdateEntryStatus,
+} from "@/api/mutations";
 import { useAutoMarkRead } from "@/hooks/useAutoMarkRead";
 import {
   fontSizeValue,
@@ -20,9 +32,30 @@ export default function ArticleView() {
   const entryQ = useEntry(entryId ?? 0, entryId !== null);
   const updateStatus = useUpdateEntryStatus();
   const toggleBookmark = useToggleBookmark();
+  const fetchFullContent = useFetchFullContent();
   const { appearance } = useArticleAppearance();
 
+  // Local override for fetched full content. Not cached via React Query so
+  // status mutations' cache invalidation can't clobber the expanded body.
+  // Resets whenever the selected entry changes.
+  const [fullContent, setFullContent] = useState<string | null>(null);
+  const [fullContentError, setFullContentError] = useState<string | null>(null);
+  const fetchReset = fetchFullContent.reset;
+  useEffect(() => {
+    setFullContent(null);
+    setFullContentError(null);
+    fetchReset();
+  }, [entryId, fetchReset]);
+
   useAutoMarkRead(entryQ.data);
+
+  // Stable reference for ArticleFrame's srcDoc memo. Recomputing the entry
+  // object on every render would remount the iframe and reset scroll state.
+  const displayEntry = useMemo(() => {
+    if (!entryQ.data) return entryQ.data;
+    if (fullContent === null) return entryQ.data;
+    return { ...entryQ.data, content: fullContent };
+  }, [entryQ.data, fullContent]);
 
   if (entryId === null) {
     return (
@@ -54,7 +87,7 @@ export default function ArticleView() {
     );
   }
 
-  if (entryQ.isError || !entryQ.data) {
+  if (entryQ.isError || !entryQ.data || !displayEntry) {
     return (
       <section className="flex h-full items-center justify-center p-8 text-sm text-destructive">
         Could not load this article.
@@ -64,6 +97,27 @@ export default function ArticleView() {
 
   const entry = entryQ.data;
   const isUnread = entry.status === "unread";
+  const fullContentActive = fullContent !== null;
+  const fullContentLoading = fetchFullContent.isPending;
+
+  const toggleFullContent = () => {
+    if (fullContentActive) {
+      setFullContent(null);
+      setFullContentError(null);
+      fetchFullContent.reset();
+      return;
+    }
+    if (fullContentLoading) return;
+    setFullContentError(null);
+    fetchFullContent.mutate(
+      { entryId: entry.id },
+      {
+        onSuccess: (data) => setFullContent(data.content),
+        onError: (err) =>
+          setFullContentError(err.message || "Could not load full content."),
+      },
+    );
+  };
 
   return (
     <section className="flex h-full flex-col">
@@ -115,6 +169,28 @@ export default function ArticleView() {
               <Circle className="h-4 w-4" />
             )}
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            disabled={fullContentLoading}
+            aria-pressed={fullContentActive}
+            aria-label={
+              fullContentLoading
+                ? "Loading full content"
+                : fullContentActive
+                  ? "Show original content"
+                  : "Load full content"
+            }
+            onClick={toggleFullContent}
+          >
+            {fullContentLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileText
+                className={cn("h-4 w-4", fullContentActive && "text-primary")}
+              />
+            )}
+          </Button>
           <a
             href={entry.url}
             target="_blank"
@@ -126,9 +202,17 @@ export default function ArticleView() {
           </a>
         </div>
       </header>
+      {fullContentError !== null && (
+        <div
+          role="alert"
+          className="border-b bg-destructive/10 px-6 py-2 text-xs text-destructive"
+        >
+          {fullContentError}
+        </div>
+      )}
       <div className="flex-1 overflow-hidden">
         <ArticleFrame
-          entry={entry}
+          entry={displayEntry}
           fontFamily={appearance.fontFamily}
           titleFontFamily={appearance.titleFontFamily}
           customFontFamily={appearance.customFontFamily}

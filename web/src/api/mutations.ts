@@ -82,6 +82,18 @@ interface ToggleBookmarkSnapshot {
   entry: Entry | undefined;
 }
 
+interface FetchFullContentVars {
+  entryId: number;
+}
+
+export function useFetchFullContent() {
+  const credentials = useCredentials();
+
+  return useMutation<{ content: string }, Error, FetchFullContentVars>({
+    mutationFn: ({ entryId }) => minifluxApi.fetchContent(credentials, entryId),
+  });
+}
+
 export function useToggleBookmark() {
   const credentials = useCredentials();
   const queryClient = useQueryClient();
