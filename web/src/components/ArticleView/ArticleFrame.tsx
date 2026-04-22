@@ -57,7 +57,7 @@ export default function ArticleFrame({
       // `allow-same-origin` is needed for fonts from the parent origin to
       // load inside the iframe. Scripts are permitted so the ported media.js
       // can post-process embeds; top-level navigation and forms remain blocked.
-      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      sandbox="allow-scripts allow-same-origin allow-popups"
       className={cn("h-full w-full border-0 bg-background", className)}
     />
   );

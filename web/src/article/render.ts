@@ -63,6 +63,16 @@ const DARK_PALETTE: Palette = {
   color_surface_tint: "#60a5fa",
 };
 
+function safeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return url;
+  } catch {
+    // fall through
+  }
+  return "#";
+}
+
 export function renderArticleSrcDoc(opts: RenderOptions): string {
   const palette = opts.theme === "dark" ? DARK_PALETTE : LIGHT_PALETTE;
 
@@ -84,7 +94,7 @@ export function renderArticleSrcDoc(opts: RenderOptions): string {
     title: escapeHtml(opts.entry.title),
     byline: bylineText ? escapeHtml(bylineText) : "",
     feed_name: escapeHtml(opts.entry.feed.title),
-    external_link: opts.entry.url,
+    external_link: safeUrl(opts.entry.url),
     body: opts.entry.content,
     inline_css: articleCss,
     inline_js: iframeScript,

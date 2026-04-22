@@ -178,10 +178,20 @@
     });
   }
 
+  function fixAnchorRels() {
+    document.querySelectorAll("a[href]").forEach((a) => {
+      const href = a.getAttribute("href") ?? "";
+      if (!href.startsWith("#")) {
+        a.setAttribute("rel", "noopener noreferrer");
+      }
+    });
+  }
+
   function init() {
     stripInlineStyles();
     cleanEmbeds();
     wrapTables();
+    fixAnchorRels();
     configureVideoTags();
     attachAllImageLoadListeners();
     observeLateImages();
