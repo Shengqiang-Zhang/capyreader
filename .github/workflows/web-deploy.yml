@@ -60,6 +60,16 @@ jobs:
         env:
           VITE_DEFAULT_MINIFLUX_URL: ${{ vars.VITE_DEFAULT_MINIFLUX_URL }}
 
+      - name: Stage build output for SWA upload
+        # The SWA upload action has a 250 MiB content cap and, with
+        # skip_app_build=true, tends to ship everything under
+        # app_location (including node_modules). Copying only the Vite
+        # output keeps the upload at ~400 kB.
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p .swa-upload
+          cp -a web/dist/. .swa-upload/
+
       - name: Deploy to Azure Static Web Apps
         id: deploy
         uses: Azure/static-web-apps-deploy@v1
@@ -67,8 +77,7 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          app_location: "web"
-          output_location: "dist"
+          app_location: ".swa-upload"
           skip_app_build: true
           skip_api_build: true
 
