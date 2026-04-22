@@ -2,6 +2,10 @@
 
 A browser companion to the Capy Reader Android app. Both clients point at the same self-hosted [Miniflux](https://miniflux.app/) instance, so read/unread and star state sync automatically.
 
+New here? See [`docs/miniflux-heroku.md`](docs/miniflux-heroku.md) for a
+free, fully-managed way to deploy Miniflux using the GitHub Student
+Developer Pack.
+
 ## Development
 
 ```sh
