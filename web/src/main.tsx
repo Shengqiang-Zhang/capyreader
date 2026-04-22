@@ -9,8 +9,12 @@ import "@/styles/app.css";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
-      refetchOnWindowFocus: false,
+      // Short stale window + refetch-on-focus so another client's writes
+      // (Android marking read/starred) show up when the user returns to
+      // the tab, without relying on a manual refresh.
+      staleTime: 10_000,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
       retry: 1,
     },
   },

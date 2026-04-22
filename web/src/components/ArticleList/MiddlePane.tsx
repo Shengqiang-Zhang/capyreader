@@ -44,9 +44,19 @@ export default function MiddlePane() {
     if (!credentials) return;
     setRefreshing(true);
     try {
-      await minifluxApi.refreshAllFeeds(credentials);
-      await queryClient.invalidateQueries({ queryKey: ["entries"] });
-      await queryClient.invalidateQueries({ queryKey: ["counters"] });
+      // Invalidate first so any cross-device state changes (e.g., a
+      // mark-read from Android) surface within a network round-trip.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["entries"] }),
+        queryClient.invalidateQueries({ queryKey: ["counters"] }),
+        queryClient.invalidateQueries({ queryKey: ["feeds"] }),
+      ]);
+      // Then ask Miniflux to re-poll upstream feeds in the background.
+      // We don't await this — it can take 30s+ on a large feed list and
+      // its results trickle in via the next poll cycle anyway.
+      minifluxApi.refreshAllFeeds(credentials).catch(() => {
+        // Ignore; periodic poller on the server will catch up.
+      });
     } finally {
       setRefreshing(false);
     }
