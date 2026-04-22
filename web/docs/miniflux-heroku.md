@@ -72,16 +72,21 @@ you paste into the Capy Reader web login screen.
 | Client | How it connects |
 | --- | --- |
 | **Web (this repo's `web/`)** | Visit the Azure Static Web App URL, enter `https://<app-name>.herokuapp.com` + API token on the login screen. |
-| **Android** | Settings → Add account → Miniflux → enter URL + API token. Run side-by-side with your LOCAL account until you're happy, then remove LOCAL. |
+| **Android** | Capy Reader is single-account: **export OPML from the current LOCAL account first**, import it into Miniflux, *then* go to Settings → Account → Remove account, and finally Add account → Miniflux with the URL + API token. Keep the exported OPML as your rollback plan. |
 
 ## Importing existing feeds
 
-If you're coming from LOCAL on Android:
+Capy Reader on Android supports only one active account at a time;
+removing the LOCAL account also wipes its read/star state (those live
+on-device and can't be migrated to a server). So the safe order is:
 
-1. In the Android app, **Settings → Export OPML** — save the file.
-2. In Miniflux, **Feeds → Import** — upload the OPML.
-3. Both clients now see the same feeds, and read/star state syncs
-   automatically because both talk to the same Miniflux.
+1. **Android**: Settings → Export OPML. Keep this file as a rollback.
+2. **Miniflux web UI**: Feeds → Import OPML — upload the file. Wait a
+   polling cycle and verify entries start arriving.
+3. **Android**: Settings → Account → Remove account. Then Add account
+   → Miniflux, enter the Heroku URL + API token.
+4. Read/star state now syncs between Android and the web client
+   automatically because both talk to the same Miniflux server.
 
 ## Alternatives
 
