@@ -1,21 +1,23 @@
-name: Deploy web client (production)
+name: Deploy web client (preview)
 
 on:
-  push:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
     branches:
       - main
     paths:
       - "web/**"
-      - ".github/workflows/web-deploy.yml"
+      - ".github/workflows/web-preview.yml"
 
 concurrency:
-  group: web-deploy-production
+  group: web-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   build-and-deploy:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
-    name: Build and deploy
+    name: Build and deploy preview
     defaults:
       run:
         working-directory: web
@@ -52,10 +54,6 @@ jobs:
           VITE_DEFAULT_MINIFLUX_URL: ${{ vars.VITE_DEFAULT_MINIFLUX_URL }}
 
       - name: Stage build output for SWA upload
-        # The SWA upload action has a 250 MiB content cap and, with
-        # skip_app_build=true, tends to ship everything under
-        # app_location (including node_modules). Copying only the Vite
-        # output keeps the upload at ~400 kB.
         working-directory: ${{ github.workspace }}
         run: |
           mkdir -p .swa-upload
@@ -71,3 +69,14 @@ jobs:
           app_location: ".swa-upload"
           skip_app_build: true
           skip_api_build: true
+
+  close-pr:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    name: Close pull request preview
+    steps:
+      - name: Close preview deployment
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: "close"
