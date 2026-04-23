@@ -97,7 +97,10 @@ export default function ArticleList({
                   setOpenMenuEntryId(open ? entry.id : null)
                 }
                 canMarkAbove={
-                  virtualRow.index > 0 && onMarkAboveAsRead !== undefined
+                  onMarkAboveAsRead !== undefined &&
+                  entries
+                    .slice(0, virtualRow.index)
+                    .some((e) => e.status === "unread")
                 }
                 onMarkAboveAsRead={
                   onMarkAboveAsRead
