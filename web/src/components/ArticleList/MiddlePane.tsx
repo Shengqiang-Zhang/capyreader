@@ -5,6 +5,7 @@ import { minifluxApi } from "@/api/miniflux";
 import { useEntriesForSelection } from "@/hooks/useEntriesQuery";
 import { useSelection } from "@/hooks/useSelection";
 import { useFeeds, useCategories } from "@/api/queries";
+import { useMarkEntriesAsRead } from "@/api/mutations";
 import { Button } from "@/components/ui/Button";
 import ArticleList from "@/components/ArticleList/ArticleList";
 import { cn } from "@/lib/cn";
@@ -17,6 +18,7 @@ export default function MiddlePane() {
   const entriesQ = useEntriesForSelection(selection);
   const feedsQ = useFeeds();
   const categoriesQ = useCategories();
+  const markEntriesAsRead = useMarkEntriesAsRead();
   const [refreshing, setRefreshing] = useState(false);
 
   const headline = (() => {
@@ -108,6 +110,10 @@ export default function MiddlePane() {
           entries={entriesQ.data?.entries}
           selectedEntryId={selection.entryId}
           onSelect={(entry) => setEntry(entry.id)}
+          onMarkAboveAsRead={(entryIds) => {
+            if (entryIds.length === 0) return;
+            markEntriesAsRead.mutate({ entryIds });
+          }}
           isLoading={entriesQ.isLoading}
           isError={entriesQ.isError}
           emptyLabel={
