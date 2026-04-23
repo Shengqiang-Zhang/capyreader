@@ -1,0 +1,153 @@
+name: Claude Fix Codex Review
+
+# The fix half of the Codex ↔ Claude review loop. Fires whenever the ChatGPT
+# Codex Connector submits a review, lets Claude address the feedback, and
+# pushes the fixes back to the PR branch. The push is attributed to the
+# CODEX_LOOP_PAT owner so that Codex's "auto-review on push" UI setting
+# re-fires the next round of review (it's not yet known whether Codex
+# auto-review fires on github-actions[bot] pushes — using the PAT is the
+# safe default; can be simplified later if observation confirms bot-push
+# auto-review works).
+#
+# Portability: no repo-specific values here other than the project-specific
+# pre-commit checks paragraph in the prompt. See .github/CODEX_LOOP.md for
+# setup instructions.
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+env:
+  # Hard cap on Codex review iterations per PR. Once Codex has submitted
+  # this many reviews, Claude stops auto-fixing and asks for manual review.
+  MAX_CODEX_ITERATIONS: 7
+
+jobs:
+  fix-codex-review:
+    # Only run when the ChatGPT Codex Connector is the reviewer, and skip
+    # fork PRs — we need write access to the PR branch to push fixes.
+    if: |
+      github.event.review.user.login == 'chatgpt-codex-connector[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Verify CODEX_LOOP_PAT secret is configured
+        env:
+          CODEX_LOOP_PAT: ${{ secrets.CODEX_LOOP_PAT }}
+        run: |
+          if [ -z "${CODEX_LOOP_PAT:-}" ]; then
+            echo "::error::CODEX_LOOP_PAT secret is missing. Add it — see .github/CODEX_LOOP.md." >&2
+            exit 1
+          fi
+
+      - name: Check Codex iteration cap
+        id: cap
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          count=$(gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" \
+            --jq '[.[] | select(.user.login == "chatgpt-codex-connector[bot]")] | length' \
+            | awk '{s+=$1} END {print s+0}')
+          echo "Codex reviews so far: $count (cap: $MAX_CODEX_ITERATIONS)"
+          if [ "$count" -ge "$MAX_CODEX_ITERATIONS" ]; then
+            gh pr comment ${{ github.event.pull_request.number }} --body \
+              "Claude auto-fix stopped after $count Codex review iterations (cap: $MAX_CODEX_ITERATIONS). Remaining feedback needs manual attention."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout PR head branch
+        if: steps.cap.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          # Push as the PAT owner (not github-actions[bot]) so that Codex's
+          # auto-review-on-push setting fires reliably on the next push.
+          token: ${{ secrets.CODEX_LOOP_PAT }}
+
+      - name: Derive git identity from PAT owner
+        if: steps.cap.outputs.skip != 'true'
+        # Attribute commits to the PAT owner via their GitHub noreply email so
+        # they show up as regular user-authored commits on the PR timeline.
+        # Derived at runtime so this file is portable across repos/owners.
+        env:
+          GH_TOKEN: ${{ secrets.CODEX_LOOP_PAT }}
+        run: |
+          set -euo pipefail
+          owner_json=$(gh api /user)
+          login=$(jq -r '.login' <<<"$owner_json")
+          id=$(jq -r '.id' <<<"$owner_json")
+          name=$(jq -r '.name // .login' <<<"$owner_json")
+          git config user.name "$name"
+          git config user.email "${id}+${login}@users.noreply.github.com"
+
+      # We intentionally use the sub-path `base-action` instead of the
+      # top-level `anthropics/claude-code-action@v1`. The top-level action's
+      # `checkHumanActor` unconditionally calls `GET /users/<actor>` before
+      # consulting `allowed_bots`, and that crashes for some bot logins. The
+      # base-action skips all actor/permission checks and just runs Claude
+      # Code with our prompt — the job-level `if:` already restricts execution
+      # to Codex reviews on same-repo PRs.
+      - name: Run Claude Code to address Codex review
+        if: steps.cap.outputs.skip != 'true'
+        uses: anthropics/claude-code-action/base-action@v1
+        timeout-minutes: 30
+        env:
+          # Use the PAT so Claude's `gh api` calls (inline review replies,
+          # PR comments, etc.) are attributed to the PAT owner instead of
+          # github-actions[bot]. Matches the git push identity set above.
+          GH_TOKEN: ${{ secrets.CODEX_LOOP_PAT }}
+          GITHUB_TOKEN: ${{ secrets.CODEX_LOOP_PAT }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            The ChatGPT Codex Connector just submitted a review on PR #${{ github.event.pull_request.number }}
+            (review id ${{ github.event.review.id }}). Address its feedback so that the Codex ↔ Claude
+            review-fix loop can continue until Codex has no more issues.
+
+            1. Fetch the review body and all inline comments attached to it:
+                 gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews/${{ github.event.review.id }}
+                 gh api --paginate repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments
+               Only act on inline comments whose `pull_request_review_id` equals ${{ github.event.review.id }}.
+
+            2. For each comment, decide whether the suggestion is valid:
+               - If it is a legitimate bug, code smell, or style issue, fix it by editing the code on the PR branch.
+               - If it is a false positive, leave the code alone and reply to that specific comment explaining why.
+
+            3. Before committing, run ONLY the cheap checks that can realistically finish in this
+               runner (no Android SDK is installed and no Gradle cache is warmed, so a cold
+               `./gradlew assembleFreeDebug` will hang for tens of minutes downloading SDK
+               components and typically fail on license acceptance — do NOT run it here).
+               - Kotlin/Android changes: rely on the repo's existing `test.yml` CI workflow to
+                 validate the build after you push. Do not invoke `./gradlew` from this job.
+                 Limit yourself to static reasoning (read the code, check types by inspection)
+                 and, at most, `./gradlew help` or `./gradlew :<module>:tasks --offline` as a
+                 sanity check — and even those only if you can confirm the Gradle daemon starts
+                 within a minute. If in doubt, skip the check entirely and push; CI will catch it.
+               - `.js` / `.liquid` asset changes: run `make` to recompile assets, then `make check`
+                 to typecheck. These do not need the Android SDK and are safe to run here.
+               If you are running this workflow on a different repo, substitute the project's own
+               lightweight check commands — never a full Android build.
+
+            4. Commit each logical group of fixes with a message like
+               `fix: address Codex review feedback on <topic>` and push to the PR branch.
+               Do not force-push, do not amend existing commits, and do not resolve review conversations.
+
+            5. Do NOT manually request a Codex re-review. Codex's "auto-review on push" UI
+               setting handles re-triggering when the next push lands. If you pushed nothing
+               (all comments were false positives or the review was purely approving), the loop
+               terminates naturally — do not post an empty review or comment.
+
+            A workflow-level cap (MAX_CODEX_ITERATIONS = ${{ env.MAX_CODEX_ITERATIONS }}) will stop
+            this job from running after too many Codex review rounds, so you do not need to track that yourself.
+          claude_args: '--allowed-tools Bash(gh:*),Bash(git:*),Bash(make:*),Edit,Write,Read,Grep,Glob'

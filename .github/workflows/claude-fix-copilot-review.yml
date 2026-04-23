@@ -10,8 +10,11 @@ name: Claude Fix Copilot Review
 # after adding the two secrets and this workflow drives the loop on any repo.
 
 on:
-  pull_request_review:
-    types: [submitted]
+  # Triggers neutered while the Codex ↔ Claude loop (claude-fix-codex-review.yml)
+  # is the active review-fix loop. The Copilot workflow stays on disk for
+  # reference / future re-enable; restore the original `pull_request_review`
+  # trigger to bring the Copilot loop back online.
+  workflow_dispatch:
 
 env:
   # Hard cap on Copilot review iterations per PR. Once Copilot has submitted

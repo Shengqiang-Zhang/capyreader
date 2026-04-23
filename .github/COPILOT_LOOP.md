@@ -1,5 +1,7 @@
 # Copilot ↔ Claude review loop
 
+> **Status (2026-04-23):** This loop is **disabled** in this repo — the active review-fix loop is now `CODEX_LOOP.md`. The workflow file `claude-fix-copilot-review.yml` has had its `on:` trigger neutered to `workflow_dispatch:` only. To re-enable, restore the original `pull_request_review` trigger.
+
 Copy these three workflows into another repo and the loop works after a one-time secret + setup-workflow step. No GitHub web-UI settings, no per-repo file edits.
 
 ## Files to copy
