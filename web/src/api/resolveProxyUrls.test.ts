@@ -54,4 +54,16 @@ describe("resolveMinifluxProxyUrls", () => {
       `<img src="${base}/proxy/a/b">`,
     );
   });
+
+  it("does not split srcset on commas inside a URL", () => {
+    const html = `<img srcset="https://cdn.example.com/img/w_400,h_300,c_fill/img.jpg 2x">`;
+    expect(resolveMinifluxProxyUrls(html, base)).toBe(html);
+  });
+
+  it("rewrites proxy srcset entry without corrupting URL-internal commas in other entries", () => {
+    const html = `<img srcset="/proxy/a/b 1x, https://cdn.example.com/img/w_400,h_300/img.jpg 2x">`;
+    expect(resolveMinifluxProxyUrls(html, base)).toBe(
+      `<img srcset="${base}/proxy/a/b 1x, https://cdn.example.com/img/w_400,h_300/img.jpg 2x">`,
+    );
+  });
 });
