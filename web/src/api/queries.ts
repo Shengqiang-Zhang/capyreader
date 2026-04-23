@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/auth/AuthContext";
 import { minifluxApi } from "@/api/miniflux";
-import type { EntriesQuery } from "@/api/types";
+import { resolveMinifluxProxyUrls } from "@/api/resolveProxyUrls";
+import type { EntriesQuery, EntriesResponse, Entry } from "@/api/types";
 
 function useCredentials() {
   const { credentials } = useAuth();
@@ -52,11 +53,26 @@ export function useFeedCounters() {
   });
 }
 
+function rewriteEntryContent(entry: Entry, baseUrl: string): Entry {
+  if (!entry.content) return entry;
+  const resolved = resolveMinifluxProxyUrls(entry.content, baseUrl);
+  if (resolved === entry.content) return entry;
+  return { ...entry, content: resolved };
+}
+
 export function useEntries(query?: EntriesQuery, enabled = true) {
   const credentials = useCredentials();
   return useQuery({
     queryKey: queryKeys.entries(query),
-    queryFn: () => minifluxApi.entries(credentials, query),
+    queryFn: async (): Promise<EntriesResponse> => {
+      const result = await minifluxApi.entries(credentials, query);
+      return {
+        ...result,
+        entries: result.entries.map((e) =>
+          rewriteEntryContent(e, credentials.baseUrl),
+        ),
+      };
+    },
     enabled,
   });
 }
@@ -65,7 +81,10 @@ export function useEntry(id: number, enabled = true) {
   const credentials = useCredentials();
   return useQuery({
     queryKey: queryKeys.entry(id),
-    queryFn: () => minifluxApi.entry(credentials, id),
+    queryFn: async () => {
+      const entry = await minifluxApi.entry(credentials, id);
+      return rewriteEntryContent(entry, credentials.baseUrl);
+    },
     enabled,
   });
 }

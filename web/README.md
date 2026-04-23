@@ -25,6 +25,23 @@ CORS_ALLOWED_ORIGINS=https://<this-web-app-origin>,http://localhost:5173
 
 (Comma-separated. Include localhost during development.)
 
+### Image proxy (recommended)
+
+Some article CDNs (e.g. `i.qbitai.com` on Tencent COS) block cross-origin
+browser requests, so the `<img>` tags returned by `/v1/entries/:id/fetch-content`
+fail with `ERR_BLOCKED_BY_ORB`. Enable Miniflux's built-in media proxy so those
+images are served through your Miniflux instance instead:
+
+```
+MEDIA_PROXY_MODE=all
+MEDIA_PROXY_HTTP_CLIENT_TIMEOUT=120
+MEDIA_PROXY_RESOURCE_TYPES=image,audio,video
+```
+
+On older Miniflux releases the option is named `PROXY_OPTION=all`. This client
+rewrites the relative `/proxy/...` URLs Miniflux returns to absolute URLs on
+your Miniflux origin so the browser can load them.
+
 ## Scripts
 
 | Command            | What it does                              |

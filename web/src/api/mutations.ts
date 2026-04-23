@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/auth/AuthContext";
 import { minifluxApi } from "@/api/miniflux";
+import { resolveMinifluxProxyUrls } from "@/api/resolveProxyUrls";
 import type { EntriesResponse, Entry, EntryStatus } from "@/api/types";
 
 function useCredentials() {
@@ -90,7 +91,13 @@ export function useFetchFullContent() {
   const credentials = useCredentials();
 
   return useMutation<{ content: string }, Error, FetchFullContentVars>({
-    mutationFn: ({ entryId }) => minifluxApi.fetchContent(credentials, entryId),
+    mutationFn: async ({ entryId }) => {
+      const result = await minifluxApi.fetchContent(credentials, entryId);
+      return {
+        ...result,
+        content: resolveMinifluxProxyUrls(result.content, credentials.baseUrl),
+      };
+    },
   });
 }
 
