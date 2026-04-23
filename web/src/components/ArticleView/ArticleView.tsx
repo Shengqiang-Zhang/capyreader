@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Circle,
   CircleDot,
@@ -29,6 +29,8 @@ import { fullDateTime } from "@/lib/time";
 export default function ArticleView() {
   const { selection } = useSelection();
   const entryId = selection.entryId;
+  const entryIdRef = useRef(entryId);
+  entryIdRef.current = entryId;
   const entryQ = useEntry(entryId ?? 0, entryId !== null);
   const updateStatus = useUpdateEntryStatus();
   const toggleBookmark = useToggleBookmark();
@@ -109,12 +111,20 @@ export default function ArticleView() {
     }
     if (fullContentLoading) return;
     setFullContentError(null);
+    const requestedEntryId = entry.id;
     fetchFullContent.mutate(
-      { entryId: entry.id },
+      { entryId: requestedEntryId },
       {
-        onSuccess: (data) => setFullContent(data.content),
-        onError: (err) =>
-          setFullContentError(err.message || "Could not load full content."),
+        onSuccess: (data) => {
+          if (entryIdRef.current === requestedEntryId) {
+            setFullContent(data.content);
+          }
+        },
+        onError: (err) => {
+          if (entryIdRef.current === requestedEntryId) {
+            setFullContentError(err.message || "Could not load full content.");
+          }
+        },
       },
     );
   };
