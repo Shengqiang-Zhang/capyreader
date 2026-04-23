@@ -94,6 +94,85 @@ export function useFetchFullContent() {
   });
 }
 
+interface MarkEntriesReadVars {
+  entryIds: number[];
+}
+
+interface MarkEntriesReadSnapshot {
+  entriesLists: Array<[readonly unknown[], EntriesResponse | undefined]>;
+  entries: Entry[];
+}
+
+export function useMarkEntriesAsRead() {
+  const credentials = useCredentials();
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, MarkEntriesReadVars, MarkEntriesReadSnapshot>({
+    mutationFn: async ({ entryIds }) => {
+      if (entryIds.length === 0) return;
+      await minifluxApi.updateEntries(credentials, entryIds, "read");
+    },
+    onMutate: async ({ entryIds }) => {
+      if (entryIds.length === 0) {
+        return { entriesLists: [], entries: [] };
+      }
+      const idSet = new Set(entryIds);
+
+      await queryClient.cancelQueries({ queryKey: ["entries"] });
+      await Promise.all(
+        entryIds.map((id) =>
+          queryClient.cancelQueries({ queryKey: ["entry", id] }),
+        ),
+      );
+
+      const entriesLists = queryClient.getQueriesData<EntriesResponse>({
+        queryKey: ["entries"],
+      });
+      const entries: Entry[] = [];
+      for (const id of entryIds) {
+        const e = queryClient.getQueryData<Entry>(["entry", id]);
+        if (e) entries.push(e);
+      }
+
+      queryClient.setQueriesData<EntriesResponse>(
+        { queryKey: ["entries"] },
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            entries: old.entries.map((e) =>
+              idSet.has(e.id) ? { ...e, status: "read" as EntryStatus } : e,
+            ),
+          };
+        },
+      );
+      for (const id of entryIds) {
+        queryClient.setQueryData<Entry>(["entry", id], (old) =>
+          old ? { ...old, status: "read" } : old,
+        );
+      }
+
+      return { entriesLists, entries };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (!ctx) return;
+      for (const [key, data] of ctx.entriesLists) {
+        queryClient.setQueryData(key, data);
+      }
+      for (const entry of ctx.entries) {
+        queryClient.setQueryData(["entry", entry.id], entry);
+      }
+    },
+    onSettled: (_data, _err, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["entries"] });
+      for (const id of vars.entryIds) {
+        queryClient.invalidateQueries({ queryKey: ["entry", id] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["counters"] });
+    },
+  });
+}
+
 export function useToggleBookmark() {
   const credentials = useCredentials();
   const queryClient = useQueryClient();
