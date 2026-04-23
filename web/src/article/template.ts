@@ -4,7 +4,7 @@ export const ARTICLE_TEMPLATE = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
     <meta name="referrer" content="no-referrer" />
-    <base target="_blank" />
+    <base href="{{base_href}}" target="_blank" />
     <style>
       :root {
         --color-primary: {{color_primary}};

@@ -187,11 +187,33 @@
     });
   }
 
+  // Fragment links need manual handling: `<base href>` makes `#foo` resolve
+  // against the Miniflux origin and `target="_blank"` opens a new tab, but
+  // users expect in-document scroll. Intercept the click and scroll ourselves.
+  function handleFragmentClicks() {
+    document.addEventListener("click", (event) => {
+      const target = /** @type {HTMLElement | null} */ (event.target);
+      if (!target) return;
+      const anchor = target.closest("a[href]");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || !href.startsWith("#") || href === "#") return;
+      const id = href.slice(1);
+      const dest =
+        document.getElementById(id) ||
+        document.querySelector(`[name="${CSS.escape(id)}"]`);
+      if (!dest) return;
+      event.preventDefault();
+      dest.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   function init() {
     stripInlineStyles();
     cleanEmbeds();
     wrapTables();
     fixAnchorRels();
+    handleFragmentClicks();
     configureVideoTags();
     attachAllImageLoadListeners();
     observeLateImages();

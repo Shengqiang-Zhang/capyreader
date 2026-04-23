@@ -12,6 +12,13 @@ export interface RenderOptions {
   fontSize?: string;
   customFontFamily?: string | null;
   customTitleFontFamily?: string | null;
+  /**
+   * Miniflux origin used as the iframe's `<base href>`. Any relative URL in
+   * article content (notably Miniflux's server-side media proxy paths like
+   * `/proxy/{hash}/{encoded}`) then resolves against Miniflux instead of the
+   * iframe's `about:srcdoc` URL.
+   */
+  minifluxBaseUrl?: string;
 }
 
 export type FontFamilyKey =
@@ -109,6 +116,18 @@ function safeUrl(url: string): string {
   return "#";
 }
 
+function safeBaseHref(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+    const trimmed = url.replace(/\/+$/, "");
+    return `${trimmed}/`;
+  } catch {
+    return "";
+  }
+}
+
 export function renderArticleSrcDoc(opts: RenderOptions): string {
   const palette = opts.theme === "dark" ? DARK_PALETTE : LIGHT_PALETTE;
 
@@ -135,6 +154,7 @@ export function renderArticleSrcDoc(opts: RenderOptions): string {
     byline: bylineText ? escapeHtml(bylineText) : "",
     feed_name: escapeHtml(opts.entry.feed.title),
     external_link: safeUrl(opts.entry.url),
+    base_href: escapeHtml(safeBaseHref(opts.minifluxBaseUrl)),
     body: opts.entry.content,
     inline_css: articleCss,
     inline_js: iframeScript,
