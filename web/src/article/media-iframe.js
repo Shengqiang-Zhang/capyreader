@@ -197,7 +197,9 @@
       const anchor = target.closest("a[href]");
       if (!anchor) return;
       const href = anchor.getAttribute("href");
-      if (!href || !href.startsWith("#") || href === "#") return;
+      if (!href || !href.startsWith("#")) return;
+      event.preventDefault();
+      if (href === "#") return;
       const id = href.slice(1);
       const dest =
         document.getElementById(id) ||
