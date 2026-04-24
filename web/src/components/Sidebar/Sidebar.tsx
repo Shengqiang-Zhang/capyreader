@@ -6,12 +6,15 @@ import {
   Inbox,
   Loader2,
   LogOut,
+  RefreshCw,
   Rss,
   Settings,
   Star,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/auth/AuthContext";
 import { useCategories, useFeedCounters, useFeeds, useMe } from "@/api/queries";
+import { MinifluxError } from "@/api/miniflux";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SearchBar } from "@/components/SearchBar";
@@ -33,6 +36,7 @@ interface CategoryGroup {
 
 export default function Sidebar({ className, searchInputRef }: SidebarProps) {
   const { signOut } = useAuth();
+  const queryClient = useQueryClient();
   const me = useMe();
   const categoriesQ = useCategories();
   const feedsQ = useFeeds();
@@ -73,6 +77,12 @@ export default function Sidebar({ className, searchInputRef }: SidebarProps) {
   );
 
   const isLoading = categoriesQ.isLoading || feedsQ.isLoading;
+  const loadError = feedsQ.error ?? categoriesQ.error ?? null;
+  const isRefetching = feedsQ.isFetching || categoriesQ.isFetching;
+  const handleRetry = () => {
+    // Refetch every query so sibling panes (entries, article) recover too.
+    queryClient.invalidateQueries();
+  };
 
   return (
     <aside
@@ -158,10 +168,13 @@ export default function Sidebar({ className, searchInputRef }: SidebarProps) {
         ))}
       </nav>
 
-      {(feedsQ.isError || categoriesQ.isError) && (
-        <div className="border-t p-3 text-xs text-destructive">
-          Could not load feeds. Check your Miniflux server.
-        </div>
+      {loadError && (
+        <FeedLoadError
+          error={loadError}
+          isRetrying={isRefetching}
+          onRetry={handleRetry}
+          onSignOut={signOut}
+        />
       )}
 
       {isLoading && groups.length === 0 && (
@@ -172,6 +185,83 @@ export default function Sidebar({ className, searchInputRef }: SidebarProps) {
         </div>
       )}
     </aside>
+  );
+}
+
+interface FeedLoadErrorProps {
+  error: unknown;
+  isRetrying: boolean;
+  onRetry: () => void;
+  onSignOut: () => void;
+}
+
+function describeLoadError(error: unknown): {
+  title: string;
+  detail: string | null;
+  isAuth: boolean;
+} {
+  if (error instanceof MinifluxError) {
+    const isAuth = error.status === 401 || error.status === 403;
+    return {
+      title: isAuth
+        ? "Your Miniflux session has expired."
+        : `Miniflux returned ${error.status}.`,
+      detail: error.message || null,
+      isAuth,
+    };
+  }
+  if (error instanceof TypeError) {
+    // fetch() throws TypeError for network/CORS/TLS failures, which all surface
+    // to the user as "Failed to fetch" with no body. Give them a pointer.
+    return {
+      title: "Could not reach your Miniflux server.",
+      detail:
+        "Check that the server is online and that CORS_ALLOWED_ORIGINS on Miniflux includes this site.",
+      isAuth: false,
+    };
+  }
+  if (error instanceof Error) {
+    return { title: "Could not load feeds.", detail: error.message, isAuth: false };
+  }
+  return { title: "Could not load feeds.", detail: null, isAuth: false };
+}
+
+function FeedLoadError({
+  error,
+  isRetrying,
+  onRetry,
+  onSignOut,
+}: FeedLoadErrorProps) {
+  const { title, detail, isAuth } = describeLoadError(error);
+  return (
+    <div
+      role="alert"
+      className="space-y-2 border-t p-3 text-xs text-destructive"
+    >
+      <p className="font-medium">{title}</p>
+      {detail && <p className="text-destructive/80">{detail}</p>}
+      <div className="flex gap-2 pt-1">
+        {isAuth ? (
+          <Button size="sm" variant="outline" onClick={onSignOut}>
+            Sign in again
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onRetry}
+            disabled={isRetrying}
+          >
+            {isRetrying ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+            Retry
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 

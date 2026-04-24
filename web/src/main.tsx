@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "@/App";
 import { AuthProvider } from "@/auth/AuthContext";
+import { MinifluxError } from "@/api/miniflux";
 import "@/styles/app.css";
 
 const queryClient = new QueryClient({
@@ -15,7 +16,14 @@ const queryClient = new QueryClient({
       staleTime: 10_000,
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
-      retry: 1,
+      // 4xx responses from Miniflux (bad token, bad request) won't recover
+      // from a retry and just delay the error reaching the UI.
+      retry: (failureCount, error) => {
+        if (error instanceof MinifluxError && error.status >= 400 && error.status < 500) {
+          return false;
+        }
+        return failureCount < 1;
+      },
     },
   },
 });
