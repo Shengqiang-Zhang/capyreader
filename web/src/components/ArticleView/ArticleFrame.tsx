@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { renderArticleSrcDoc, type FontFamilyKey } from "@/article/render";
+import { useAuth } from "@/auth/AuthContext";
 import type { Entry } from "@/api/types";
 import { cn } from "@/lib/cn";
 
@@ -28,6 +29,8 @@ export default function ArticleFrame({
   className,
 }: ArticleFrameProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { credentials } = useAuth();
+  const minifluxBaseUrl = credentials?.baseUrl;
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     prefersDark() ? "dark" : "light",
   );
@@ -51,6 +54,7 @@ export default function ArticleFrame({
         customFontFamily,
         customTitleFontFamily,
         fontSize,
+        minifluxBaseUrl,
       }),
     [
       entry,
@@ -60,6 +64,7 @@ export default function ArticleFrame({
       customFontFamily,
       customTitleFontFamily,
       fontSize,
+      minifluxBaseUrl,
     ],
   );
 
