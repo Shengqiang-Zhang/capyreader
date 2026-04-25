@@ -15,13 +15,11 @@
     /** @type {any} */ (/** @type {unknown} */ (window)).__capyArticleConfig ||
     {};
   const fallbackProxy = String(config.imageFallbackProxy || "");
-  const minifluxOrigin = (() => {
-    try {
-      return new URL(document.baseURI).origin;
-    } catch (_) {
-      return "";
-    }
-  })();
+  // Strip trailing slash so prefix checks below work without a double slash.
+  // document.baseURI is set from safeBaseHref(minifluxBaseUrl) via <base href>,
+  // which may include a subpath (e.g. https://host/miniflux/) — using only the
+  // origin would miss proxy URLs at https://host/miniflux/proxy/....
+  const minifluxBase = document.baseURI.replace(/\/+$/, "");
 
   const YOUTUBE_DOMAINS = [
     /.*?\/\/www\.youtube-nocookie\.com\/embed\/(.*?)(\?|$)/,
@@ -75,10 +73,9 @@
     if (!fallbackProxy) return false;
     if (!src) return false;
     if (src.startsWith(fallbackProxy)) return false;
-    // Skip Miniflux media-proxy URLs by matching the article's base origin.
-    // A broad /proxy/ regex would incorrectly exclude CDN URLs whose paths
-    // happen to start with /proxy/ (e.g. https://cdn.example.com/proxy/img).
-    if (minifluxOrigin && src.startsWith(minifluxOrigin + "/proxy/")) return false;
+    // Skip Miniflux media-proxy URLs using the full base URL (including any
+    // subpath), not just the origin — see the minifluxBase derivation above.
+    if (minifluxBase && src.startsWith(minifluxBase + "/proxy/")) return false;
     return /^https?:/i.test(src);
   }
 
