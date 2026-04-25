@@ -25,12 +25,16 @@ CORS_ALLOWED_ORIGINS=https://<this-web-app-origin>,http://localhost:5173
 
 (Comma-separated. Include localhost during development.)
 
-### Image proxy (recommended)
+### Image proxy (required for hotlink-protected feeds)
 
-Some article CDNs (e.g. `i.qbitai.com` on Tencent COS) block cross-origin
-browser requests, so the `<img>` tags returned by `/v1/entries/:id/fetch-content`
-fail with `ERR_BLOCKED_BY_ORB`. Enable Miniflux's built-in media proxy so those
-images are served through your Miniflux instance instead:
+Many article CDNs reject cross-origin browser requests:
+
+- `img.ithome.com` returns 403 unless the `Referer` is `*.ithome.com`.
+- `i.qbitai.com` (Tencent COS) returns 403 with an XML body, which Chrome
+  then blocks with `net::ERR_BLOCKED_BY_ORB`.
+
+The browser cannot satisfy these checks, so the only way to render those
+images is to fetch them server-side. Enable Miniflux's built-in media proxy:
 
 ```
 MEDIA_PROXY_MODE=all
@@ -38,9 +42,28 @@ MEDIA_PROXY_HTTP_CLIENT_TIMEOUT=120
 MEDIA_PROXY_RESOURCE_TYPES=image,audio,video
 ```
 
-On older Miniflux releases the option is named `PROXY_OPTION=all`. This client
-rewrites the relative `/proxy/...` URLs Miniflux returns to absolute URLs on
-your Miniflux origin so the browser can load them.
+On older Miniflux releases the option is named `PROXY_OPTION=all`. After
+flipping the env vars, restart Miniflux and refresh the affected feed
+(Settings → Feeds → Refresh) so cached entries get re-processed with proxy URLs.
+
+This client rewrites the relative `/proxy/{hash}/{encoded}` URLs Miniflux
+returns to absolute URLs on your Miniflux origin so the browser can load them.
+
+### Fallback image proxy (optional, for users who cannot host Miniflux's proxy)
+
+If you cannot enable `MEDIA_PROXY_MODE` (e.g. your Miniflux is read-only or
+lacks egress to a CDN), set `VITE_IMAGE_FALLBACK_PROXY` at build time. The
+companion will retry any `<img>` that errors out by routing it through this
+prefix:
+
+```
+VITE_IMAGE_FALLBACK_PROXY=https://images.weserv.nl/?url=
+```
+
+The original src is appended URL-encoded. Public proxies like
+`images.weserv.nl` cover most western CDNs but block several Chinese TLDs by
+policy — for those feeds, deploy your own proxy (Cloudflare Workers, Deno
+Deploy, an Azure Function) or stick with Miniflux's media proxy.
 
 ## Scripts
 
@@ -55,9 +78,10 @@ your Miniflux origin so the browser can load them.
 
 ## Environment variables
 
-| Name                         | Purpose                                               |
-| ---------------------------- | ----------------------------------------------------- |
-| `VITE_DEFAULT_MINIFLUX_URL`  | Pre-fills the server URL on the login screen.         |
+| Name                          | Purpose                                                                |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| `VITE_DEFAULT_MINIFLUX_URL`   | Pre-fills the server URL on the login screen.                          |
+| `VITE_IMAGE_FALLBACK_PROXY`   | URL prefix used to retry `<img>` loads that 403 or get blocked by ORB. |
 
 ## Deployment
 
@@ -67,10 +91,11 @@ that touches `web/**`. Pull requests get an isolated preview URL.
 
 Required secrets / vars:
 
-| Kind   | Name                                  | Purpose                                       |
-| ------ | ------------------------------------- | --------------------------------------------- |
-| secret | `AZURE_STATIC_WEB_APPS_API_TOKEN`     | Deployment token from the Static Web App resource. |
-| var    | `VITE_DEFAULT_MINIFLUX_URL` (optional)| Pre-fills login form with your Miniflux URL.  |
+| Kind   | Name                                       | Purpose                                                  |
+| ------ | ------------------------------------------ | -------------------------------------------------------- |
+| secret | `AZURE_STATIC_WEB_APPS_API_TOKEN`          | Deployment token from the Static Web App resource.       |
+| var    | `VITE_DEFAULT_MINIFLUX_URL` (optional)     | Pre-fills login form with your Miniflux URL.             |
+| var    | `VITE_IMAGE_FALLBACK_PROXY` (optional)     | URL prefix used to retry hotlink-blocked image loads.    |
 
 `web/public/staticwebapp.config.json` sets the SPA fallback (so deep
 links like `/?feed=5` resolve to `index.html`) and long-lived caching

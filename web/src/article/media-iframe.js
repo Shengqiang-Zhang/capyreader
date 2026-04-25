@@ -5,6 +5,17 @@
 // omitted — the web client uses native anchor targeting instead.
 
 (function () {
+  /**
+   * The host page injects `window.__capyArticleConfig` before this script
+   * runs. `imageFallbackProxy` is a URL prefix; the original src is appended
+   * to it (URL-encoded) when an image fails to load. Empty string ⇒ disabled.
+   * @type {{ imageFallbackProxy?: string }}
+   */
+  const config =
+    /** @type {any} */ (/** @type {unknown} */ (window)).__capyArticleConfig ||
+    {};
+  const fallbackProxy = String(config.imageFallbackProxy || "");
+
   const YOUTUBE_DOMAINS = [
     /.*?\/\/www\.youtube-nocookie\.com\/embed\/(.*?)(\?|$)/,
     /.*?\/\/www\.youtube\.com\/embed\/(.*?)(\?|$)/,
@@ -46,12 +57,77 @@
     img.classList.add("loaded");
   }
 
+  // Hotlink-protected CDNs (img.ithome.com, i.qbitai.com on Tencent COS, etc.)
+  // either 403 the request or trigger Chrome's ORB on the cross-origin image
+  // load. Retry through a referer-stripping image proxy if one is configured.
+  // Skip when the src already targets the proxy (avoid loops) or when it's a
+  // Miniflux media-proxy URL (Miniflux already performs server-side fetch).
+
+  /** @param {string} src */
+  function shouldTryFallback(src) {
+    if (!fallbackProxy) return false;
+    if (!src) return false;
+    if (src.startsWith(fallbackProxy)) return false;
+    // Skip Miniflux media-proxy URLs only when /proxy/ is at the path root,
+    // not anywhere in the path — a CDN URL like
+    // `https://cdn.example/web/proxy/foo.jpg` should still get the fallback.
+    if (/^https?:\/\/[^/]+\/proxy\//i.test(src)) return false;
+    return /^https?:/i.test(src);
+  }
+
+  /** @param {string} src */
+  function buildFallbackSrc(src) {
+    return fallbackProxy + encodeURIComponent(src);
+  }
+
+  let warnedAboutImageBlocks = false;
+  /** @param {string} src */
+  function warnHotlinkBlock(src) {
+    if (warnedAboutImageBlocks) return;
+    warnedAboutImageBlocks = true;
+    const tip = fallbackProxy
+      ? "Configured fallback proxy did not accept this URL."
+      : "Set MEDIA_PROXY_MODE=all on your Miniflux server, or configure VITE_IMAGE_FALLBACK_PROXY at build time.";
+    console.warn(
+      "[capy] Image failed to load (likely hotlink protection or ORB):",
+      src,
+      "\n",
+      tip,
+    );
+  }
+
+  /** @param {HTMLImageElement} img */
+  function handleImageError(img) {
+    const currentSrc = img.getAttribute("src") || "";
+    if (img.dataset.capyFallbackTried === "1") {
+      // Log the pre-fallback URL so the user can identify the actual feed image,
+      // not the proxy-encoded retry URL.
+      warnHotlinkBlock(img.dataset.capyOriginalSrc || currentSrc);
+      markLoaded(img);
+      return;
+    }
+    if (!shouldTryFallback(currentSrc)) {
+      warnHotlinkBlock(currentSrc);
+      markLoaded(img);
+      return;
+    }
+    img.dataset.capyFallbackTried = "1";
+    img.dataset.capyOriginalSrc = currentSrc;
+    img.setAttribute("src", buildFallbackSrc(currentSrc));
+    if (img.hasAttribute("srcset")) img.removeAttribute("srcset");
+  }
+
   /** @param {HTMLImageElement} img */
   function attachImageLoadListener(img) {
     if (img.classList.contains("loaded")) return;
-    img.addEventListener("load", () => markLoaded(img), { once: true });
-    img.addEventListener("error", () => markLoaded(img), { once: true });
-    if (img.complete) markLoaded(img);
+    if (img.dataset.capyListenerAttached === "1") return;
+    img.dataset.capyListenerAttached = "1";
+    img.addEventListener("load", () => markLoaded(img));
+    img.addEventListener("error", () => handleImageError(img));
+    if (img.complete) {
+      if (img.naturalWidth > 0) markLoaded(img);
+      else handleImageError(img);
+    }
   }
 
   function attachAllImageLoadListeners() {

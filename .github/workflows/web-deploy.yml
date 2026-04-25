@@ -50,6 +50,7 @@ jobs:
         run: pnpm build
         env:
           VITE_DEFAULT_MINIFLUX_URL: ${{ vars.VITE_DEFAULT_MINIFLUX_URL }}
+          VITE_IMAGE_FALLBACK_PROXY: ${{ vars.VITE_IMAGE_FALLBACK_PROXY }}
 
       - name: Stage build output for SWA upload
         # The SWA upload action has a 250 MiB content cap and, with
