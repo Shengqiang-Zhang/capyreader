@@ -1,15 +1,35 @@
-// Miniflux rewrites image URLs to relative `/proxy/{hash}/{encoded}` paths when
-// its server-side PROXY_OPTION (or PROXY_MEDIA_TYPES) is configured. Those paths
+// Miniflux rewrites image URLs to `/proxy/{hash}/{encoded}` paths when its
+// server-side MEDIA_PROXY_MODE (or PROXY_MEDIA_TYPES) is configured. Those paths
 // resolve against Miniflux in its own web UI, but in a third-party client they
 // resolve against our origin and 404. Rewrite them to absolute Miniflux URLs so
 // the browser loads them from the Miniflux instance instead — that also lets
 // Miniflux bypass cross-origin hotlink blocks for CDNs like Tencent COS that
 // reject non-server requests (seen on i.qbitai.com images).
+//
+// Two rewrite cases:
+//   (a) Relative `/proxy/...` — emitted when Miniflux's BASE_URL is unset.
+//   (b) Absolute `http(s)://localhost[:port]/proxy/...` — emitted when BASE_URL
+//       defaults to `http://localhost` (a common Heroku/Docker misconfiguration:
+//       MEDIA_PROXY_MODE=all is set but BASE_URL is left at the default). The
+//       HMAC signature in the URL only covers the encoded image path, so we can
+//       safely swap the host for the user's actual Miniflux origin.
 
 const PROXY_PATH = "/proxy/";
 
+// Matches `http(s)://localhost[:port]/proxy/` and `http(s)://127.0.0.1[:port]/proxy/`
+// at the start of an attribute value. Non-capturing — replacement uses a literal.
+const LOCALHOST_PROXY_PREFIX_RE =
+  /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/proxy\//i;
+
 function stripTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "");
+}
+
+function rewriteSrcsetCandidate(url: string, base: string): string {
+  if (url.startsWith(PROXY_PATH)) return `${base}${url}`;
+  const match = url.match(LOCALHOST_PROXY_PREFIX_RE);
+  if (match) return `${base}${PROXY_PATH}${url.slice(match[0].length)}`;
+  return url;
 }
 
 // Parse a srcset attribute value into URL+descriptor pairs following the HTML spec
@@ -67,11 +87,12 @@ export function resolveMinifluxProxyUrls(
   const base = stripTrailingSlash(minifluxBaseUrl);
   if (!base) return html;
 
-  // Rewrite `src="/proxy/..."` and `src='/proxy/...'` occurrences. Also covers
-  // `data-src`, `poster`, and `href` which Miniflux rewrites for anchors too.
+  // Rewrite `src`, `data-src`, `poster`, `href` attribute values that point to
+  // a Miniflux proxy path — either relative `/proxy/...` or absolute
+  // `http(s)://localhost[:port]/proxy/...` (see header comment for context).
   const attrs = html.replace(
-    /(\b(?:src|data-src|poster|href)=)(['"])(\/proxy\/)/g,
-    `$1$2${base}$3`,
+    /(\b(?:src|data-src|poster|href)=)(['"])(\/|https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?\/)proxy\//gi,
+    `$1$2${base}/proxy/`,
   );
 
   // Rewrite srcset candidates. Uses a spec-compliant parser so URL-internal
@@ -88,7 +109,7 @@ export function resolveMinifluxProxyUrls(
     ) => {
       const rewritten = parseSrcsetCandidates(value)
         .map(({ url, descriptor }) => {
-          const resolved = url.startsWith(PROXY_PATH) ? `${base}${url}` : url;
+          const resolved = rewriteSrcsetCandidate(url, base);
           return descriptor ? `${resolved} ${descriptor}` : resolved;
         })
         .join(", ");

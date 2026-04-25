@@ -66,4 +66,40 @@ describe("resolveMinifluxProxyUrls", () => {
       `<img srcset="${base}/proxy/a/b 1x, https://cdn.example.com/img/w_400,h_300/img.jpg 2x">`,
     );
   });
+
+  // Miniflux servers with MEDIA_PROXY_MODE=all but BASE_URL unset emit absolute
+  // proxy URLs anchored at `http://localhost/`. These reach the user's browser
+  // and 404 (or ERR_CONNECTION_REFUSED) unless we swap the host.
+  it("rewrites absolute http://localhost/proxy/ src to the configured base", () => {
+    const html = `<img src="http://localhost/proxy/abc123/base64encoded">`;
+    expect(resolveMinifluxProxyUrls(html, base)).toBe(
+      `<img src="${base}/proxy/abc123/base64encoded">`,
+    );
+  });
+
+  it("rewrites absolute http://127.0.0.1/proxy/ src", () => {
+    const html = `<img src="http://127.0.0.1/proxy/abc/def">`;
+    expect(resolveMinifluxProxyUrls(html, base)).toBe(
+      `<img src="${base}/proxy/abc/def">`,
+    );
+  });
+
+  it("rewrites absolute localhost proxy URLs with explicit port", () => {
+    const html = `<img src="http://localhost:8080/proxy/h/u">`;
+    expect(resolveMinifluxProxyUrls(html, base)).toBe(
+      `<img src="${base}/proxy/h/u">`,
+    );
+  });
+
+  it("rewrites localhost proxy URLs in srcset entries", () => {
+    const html = `<img srcset="http://localhost/proxy/a/b 1x, http://localhost/proxy/c/d 2x">`;
+    expect(resolveMinifluxProxyUrls(html, base)).toBe(
+      `<img srcset="${base}/proxy/a/b 1x, ${base}/proxy/c/d 2x">`,
+    );
+  });
+
+  it("does not rewrite absolute proxy URLs on unrelated hosts", () => {
+    const html = `<img src="https://other.example.com/proxy/abc/def">`;
+    expect(resolveMinifluxProxyUrls(html, base)).toBe(html);
+  });
 });
