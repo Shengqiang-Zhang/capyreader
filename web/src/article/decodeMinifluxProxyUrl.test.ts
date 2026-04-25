@@ -65,6 +65,16 @@ describe("decodeMinifluxProxyUrl", () => {
     expect(decodeMinifluxProxyUrl(url, BASE)).toBeNull();
   });
 
+  it("decodes a proxy URL whose upstream URL contains non-ASCII (UTF-8) characters", () => {
+    // "https://example.com/图片/test.jpg" encoded as UTF-8 bytes → standard base64
+    // then converted to base64url (the single "/" in the b64 output becomes "_").
+    const encoded = "aHR0cHM6Ly9leGFtcGxlLmNvbS_lm77niYcvdGVzdC5qcGc=";
+    const url = `${BASE}/proxy/h=/${encoded}`;
+    expect(decodeMinifluxProxyUrl(url, BASE)).toBe(
+      "https://example.com/图片/test.jpg",
+    );
+  });
+
   it("returns null when the URL has no second segment", () => {
     expect(decodeMinifluxProxyUrl(`${BASE}/proxy/`, BASE)).toBeNull();
     expect(decodeMinifluxProxyUrl(`${BASE}/proxy/onlyhash=`, BASE)).toBeNull();

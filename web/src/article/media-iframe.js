@@ -91,7 +91,8 @@
     const standardB64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
     let decoded;
     try {
-      decoded = atob(standardB64);
+      const bytes = Uint8Array.from(atob(standardB64), (c) => c.charCodeAt(0));
+      decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch (_) {
       return null;
     }
