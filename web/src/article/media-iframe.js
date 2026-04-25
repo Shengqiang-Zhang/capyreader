@@ -15,6 +15,13 @@
     /** @type {any} */ (/** @type {unknown} */ (window)).__capyArticleConfig ||
     {};
   const fallbackProxy = String(config.imageFallbackProxy || "");
+  const minifluxOrigin = (() => {
+    try {
+      return new URL(document.baseURI).origin;
+    } catch (_) {
+      return "";
+    }
+  })();
 
   const YOUTUBE_DOMAINS = [
     /.*?\/\/www\.youtube-nocookie\.com\/embed\/(.*?)(\?|$)/,
@@ -68,10 +75,10 @@
     if (!fallbackProxy) return false;
     if (!src) return false;
     if (src.startsWith(fallbackProxy)) return false;
-    // Skip Miniflux media-proxy URLs only when /proxy/ is at the path root,
-    // not anywhere in the path — a CDN URL like
-    // `https://cdn.example/web/proxy/foo.jpg` should still get the fallback.
-    if (/^https?:\/\/[^/]+\/proxy\//i.test(src)) return false;
+    // Skip Miniflux media-proxy URLs by matching the article's base origin.
+    // A broad /proxy/ regex would incorrectly exclude CDN URLs whose paths
+    // happen to start with /proxy/ (e.g. https://cdn.example.com/proxy/img).
+    if (minifluxOrigin && src.startsWith(minifluxOrigin + "/proxy/")) return false;
     return /^https?:/i.test(src);
   }
 
