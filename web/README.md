@@ -49,21 +49,28 @@ flipping the env vars, restart Miniflux and refresh the affected feed
 This client rewrites the relative `/proxy/{hash}/{encoded}` URLs Miniflux
 returns to absolute URLs on your Miniflux origin so the browser can load them.
 
-### Fallback image proxy (optional, for users who cannot host Miniflux's proxy)
+### Fallback image proxy (recommended even with `MEDIA_PROXY_MODE=all`)
 
-If you cannot enable `MEDIA_PROXY_MODE` (e.g. your Miniflux is read-only or
-lacks egress to a CDN), set `VITE_IMAGE_FALLBACK_PROXY` at build time. The
-companion will retry any `<img>` that errors out by routing it through this
-prefix:
+`MEDIA_PROXY_MODE` works as long as your Miniflux server can fetch the
+upstream. On platforms like Heroku that share egress IPs across many tenants,
+upstream CDNs (especially Tencent COS, image.ithome.com) sometimes 403 the
+proxy fetch — Miniflux then returns `Origin status code is 403` as text/plain,
+which Chrome rejects with `ERR_BLOCKED_BY_ORB`. Setting a fallback proxy lets
+the browser retry through a host that the upstream accepts.
 
 ```
 VITE_IMAGE_FALLBACK_PROXY=https://images.weserv.nl/?url=
 ```
 
-The original src is appended URL-encoded. Public proxies like
-`images.weserv.nl` cover most western CDNs but block several Chinese TLDs by
-policy — for those feeds, deploy your own proxy (Cloudflare Workers, Deno
-Deploy, an Azure Function) or stick with Miniflux's media proxy.
+The companion appends the original src URL-encoded. When a Miniflux media-proxy
+URL itself errors out, the browser decodes the upstream URL embedded in the
+proxy path (`/proxy/{HMAC}/{base64url-original}`) and feeds *that* to the
+fallback proxy — re-routing through Miniflux a second time would just fail
+again.
+
+Public proxies like `images.weserv.nl` cover most western CDNs but block
+several Chinese TLDs by policy — for those feeds, deploy your own proxy
+(Cloudflare Workers, Deno Deploy, an Azure Function).
 
 ## Scripts
 

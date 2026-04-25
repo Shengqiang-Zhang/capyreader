@@ -65,16 +65,50 @@
   // Hotlink-protected CDNs (img.ithome.com, i.qbitai.com on Tencent COS, etc.)
   // either 403 the request or trigger Chrome's ORB on the cross-origin image
   // load. Retry through a referer-stripping image proxy if one is configured.
-  // Skip when the src already targets the proxy (avoid loops) or when it's a
-  // Miniflux media-proxy URL (Miniflux already performs server-side fetch).
+  //
+  // Miniflux media-proxy URLs (`/proxy/{HMAC}/{base64url-original}`) get
+  // special handling: when Miniflux's own server-side fetch fails (e.g.
+  // Heroku egress IPs are blocked by the upstream CDN), the proxy returns
+  // "Origin status code is 403" as text/plain — Chrome's ORB blocks it. In
+  // that case we decode the upstream URL embedded in the proxy URL and feed
+  // *that* to the fallback proxy; routing through Miniflux a second time
+  // would just fail again. See decodeMinifluxProxyUrl.ts for the typed
+  // version + tests; keep the two copies in sync.
+
+  /**
+   * @param {string} src
+   * @returns {string | null}
+   */
+  function decodeMinifluxProxyUrl(src) {
+    if (!src || !minifluxBase) return null;
+    const prefix = minifluxBase + "/proxy/";
+    if (!src.startsWith(prefix)) return null;
+    const tail = src.slice(prefix.length);
+    const slash = tail.indexOf("/");
+    if (slash < 0) return null;
+    const encoded = tail.slice(slash + 1);
+    if (!encoded) return null;
+    const standardB64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    let decoded;
+    try {
+      const bytes = Uint8Array.from(atob(standardB64), (c) => c.charCodeAt(0));
+      decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch (_) {
+      return null;
+    }
+    if (!/^https?:\/\//i.test(decoded)) return null;
+    return decoded;
+  }
 
   /** @param {string} src */
   function shouldTryFallback(src) {
     if (!fallbackProxy) return false;
     if (!src) return false;
     if (src.startsWith(fallbackProxy)) return false;
-    // Skip Miniflux media-proxy URLs using the full base URL (including any
-    // subpath), not just the origin — see the minifluxBase derivation above.
+    // Skip Miniflux media-proxy URLs that we couldn't decode to an upstream
+    // URL — wrapping them with the fallback proxy would just ask the fallback
+    // to fetch the failing Miniflux proxy URL. handleImageError() decodes
+    // first and only passes a Miniflux URL here when decoding fell through.
     if (minifluxBase && src.startsWith(minifluxBase + "/proxy/")) return false;
     return /^https?:/i.test(src);
   }
@@ -89,9 +123,18 @@
   function warnHotlinkBlock(src) {
     if (warnedAboutImageBlocks) return;
     warnedAboutImageBlocks = true;
-    const tip = fallbackProxy
-      ? "Configured fallback proxy did not accept this URL."
-      : "Set MEDIA_PROXY_MODE=all on your Miniflux server, or configure VITE_IMAGE_FALLBACK_PROXY at build time.";
+    const isMinifluxProxy =
+      !!minifluxBase && src.startsWith(minifluxBase + "/proxy/");
+    let tip;
+    if (fallbackProxy) {
+      tip = "Configured fallback proxy did not accept this URL.";
+    } else if (isMinifluxProxy) {
+      tip =
+        "Miniflux's media proxy could not fetch the upstream image (likely the upstream CDN blocks Miniflux's egress IP). Configure VITE_IMAGE_FALLBACK_PROXY at build time so the browser can retry through a public image proxy.";
+    } else {
+      tip =
+        "Set MEDIA_PROXY_MODE=all on your Miniflux server, or configure VITE_IMAGE_FALLBACK_PROXY at build time.";
+    }
     console.warn(
       "[capy] Image failed to load (likely hotlink protection or ORB):",
       src,
@@ -110,14 +153,18 @@
       markLoaded(img);
       return;
     }
-    if (!shouldTryFallback(currentSrc)) {
+    // Miniflux proxy URLs that errored mean Miniflux itself failed to fetch
+    // the upstream — decode the embedded upstream URL so the fallback proxy
+    // can take a fresh shot at the real image.
+    const fallbackTarget = decodeMinifluxProxyUrl(currentSrc) || currentSrc;
+    if (!shouldTryFallback(fallbackTarget)) {
       warnHotlinkBlock(currentSrc);
       markLoaded(img);
       return;
     }
     img.dataset.capyFallbackTried = "1";
     img.dataset.capyOriginalSrc = currentSrc;
-    img.setAttribute("src", buildFallbackSrc(currentSrc));
+    img.setAttribute("src", buildFallbackSrc(fallbackTarget));
     if (img.hasAttribute("srcset")) img.removeAttribute("srcset");
   }
 
