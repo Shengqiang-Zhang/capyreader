@@ -135,3 +135,42 @@ describe("renderArticleSrcDoc base href", () => {
     expect(out).not.toContain(`"><script>`);
   });
 });
+
+describe("renderArticleSrcDoc image fallback proxy", () => {
+  it("emits an empty fallback proxy when none is supplied", () => {
+    const out = renderArticleSrcDoc({
+      entry: buildEntry(),
+      theme: "light",
+    });
+    expect(out).toContain(`imageFallbackProxy: ""`);
+  });
+
+  it("inlines the configured fallback proxy as a JSON string", () => {
+    const out = renderArticleSrcDoc({
+      entry: buildEntry(),
+      theme: "light",
+      imageFallbackProxy: "https://images.weserv.nl/?url=",
+    });
+    expect(out).toContain(
+      `imageFallbackProxy: "https://images.weserv.nl/?url=" `,
+    );
+  });
+
+  it("rejects non-http(s) fallback proxy URLs", () => {
+    const out = renderArticleSrcDoc({
+      entry: buildEntry(),
+      theme: "light",
+      imageFallbackProxy: "javascript:alert(1)",
+    });
+    expect(out).toContain(`imageFallbackProxy: "" `);
+  });
+
+  it("escapes a closing script tag inside the fallback proxy URL", () => {
+    const out = renderArticleSrcDoc({
+      entry: buildEntry(),
+      theme: "light",
+      imageFallbackProxy: "https://x.test/?</script><script>alert(1)//",
+    });
+    expect(out).not.toContain("</script><script>alert(1)");
+  });
+});

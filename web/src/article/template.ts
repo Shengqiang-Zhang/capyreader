@@ -45,6 +45,7 @@ export const ARTICLE_TEMPLATE = `<!DOCTYPE html>
         <div id="article-body-content">{{body}}</div>
       </div>
     </article>
+    <script>window.__capyArticleConfig = { imageFallbackProxy: {{article_config_json}} };</script>
     <script>{{inline_js}}</script>
   </body>
 </html>`;

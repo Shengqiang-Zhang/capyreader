@@ -4,6 +4,10 @@ import { useAuth } from "@/auth/AuthContext";
 import type { Entry } from "@/api/types";
 import { cn } from "@/lib/cn";
 
+const IMAGE_FALLBACK_PROXY = (
+  import.meta.env.VITE_IMAGE_FALLBACK_PROXY ?? ""
+).trim();
+
 interface ArticleFrameProps {
   entry: Entry;
   fontFamily?: FontFamilyKey;
@@ -55,6 +59,7 @@ export default function ArticleFrame({
         customTitleFontFamily,
         fontSize,
         minifluxBaseUrl,
+        imageFallbackProxy: IMAGE_FALLBACK_PROXY,
       }),
     [
       entry,

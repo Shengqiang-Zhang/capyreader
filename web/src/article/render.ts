@@ -19,6 +19,12 @@ export interface RenderOptions {
    * iframe's `about:srcdoc` URL.
    */
   minifluxBaseUrl?: string;
+  /**
+   * Optional URL prefix for retrying broken `<img>` loads. The original src
+   * is appended URL-encoded. Used as a fallback when a CDN blocks hotlinks
+   * or Chrome's ORB rejects a no-cors response. Empty/undefined disables it.
+   */
+  imageFallbackProxy?: string;
 }
 
 export type FontFamilyKey =
@@ -128,6 +134,21 @@ function safeBaseHref(url: string | undefined): string {
   }
 }
 
+function safeImageFallbackProxy(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+    return url;
+  } catch {
+    return "";
+  }
+}
+
+function escapeForJsonInScript(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c").replace(/-->/g, "--\\>");
+}
+
 export function renderArticleSrcDoc(opts: RenderOptions): string {
   const palette = opts.theme === "dark" ? DARK_PALETTE : LIGHT_PALETTE;
 
@@ -157,6 +178,9 @@ export function renderArticleSrcDoc(opts: RenderOptions): string {
     base_href: escapeHtml(safeBaseHref(opts.minifluxBaseUrl)),
     body: opts.entry.content,
     inline_css: articleCss,
+    article_config_json: escapeForJsonInScript(
+      safeImageFallbackProxy(opts.imageFallbackProxy),
+    ),
     inline_js: iframeScript,
   };
 
