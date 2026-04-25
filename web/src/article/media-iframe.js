@@ -98,7 +98,7 @@
 
   /** @param {HTMLImageElement} img */
   function handleImageError(img) {
-    const currentSrc = img.getAttribute("src") || "";
+    const currentSrc = img.currentSrc || img.getAttribute("src") || "";
     if (img.dataset.capyFallbackTried === "1") {
       // Log the pre-fallback URL so the user can identify the actual feed image,
       // not the proxy-encoded retry URL.
