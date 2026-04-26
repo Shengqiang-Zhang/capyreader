@@ -389,22 +389,29 @@ internal class MinifluxAccountDelegate(
     }
 
     private fun saveEntries(entries: List<Entry>) {
+        // Resolve Miniflux MEDIA_PROXY_MODE rewrites at sync time so /proxy/{hash}
+        // image URLs reach the WebView as absolute URLs anchored at the user's
+        // Miniflux origin. Otherwise they 404 — loadDataWithBaseURL(null) leaves
+        // relative paths unresolvable.
+        val minifluxBaseUrl = preferences.url.get()
+
         database.transactionWithErrorHandling {
             entries.forEach { entry ->
                 val updated = TimeHelpers.nowUTC()
                 val articleID = entry.id.toString()
                 val imageURL = MinifluxEnclosureParsing.parsedImageURL(entry)
                 val enclosures = entry.enclosures.orEmpty()
+                val resolvedContent = MinifluxProxyResolver.resolve(entry.content, minifluxBaseUrl)
 
                 database.articlesQueries.create(
                     id = articleID,
                     feed_id = entry.feed_id.toString(),
                     title = Jsoup.parse(entry.title).text(),
                     author = entry.author,
-                    content_html = entry.content,
+                    content_html = resolvedContent,
                     extracted_content_url = null,
                     url = entry.url,
-                    summary = ContentFormatter.summary(entry.content),
+                    summary = ContentFormatter.summary(resolvedContent),
                     image_url = imageURL,
                     published_at = entry.published_at.toDateTime?.toEpochSecond() ?: updated.toEpochSecond(),
                     enclosure_type = enclosures.firstOrNull()?.mime_type,
