@@ -152,7 +152,7 @@ class MinifluxProxyResolverTest {
     }
 
     // The Android client stores the API URL (`https://server/v1/`); strip the
-    // path so /proxy/... is rewritten at the server origin.
+    // /v1 segment so /proxy/... is rewritten at the application root.
     @Test
     fun resolve_acceptsApiBaseUrlWithV1Path() {
         val html = """<img src="/proxy/h/u">"""
@@ -168,6 +168,18 @@ class MinifluxProxyResolverTest {
         assertEquals(
             """<img src="https://miniflux.example.com:8443/proxy/h/u">""",
             MinifluxProxyResolver.resolve(html, "https://miniflux.example.com:8443/v1/"),
+        )
+    }
+
+    // Miniflux can be deployed at a subpath via BASE_URL (e.g. BASE_URL=https://example.org/rss/).
+    // The stored API URL is then `https://example.org/rss/v1/`, and proxy URLs live at
+    // `https://example.org/rss/proxy/...` — not at the origin root.
+    @Test
+    fun resolve_preservesSubpathForSubfolderDeployment() {
+        val html = """<img src="/proxy/h/u">"""
+        assertEquals(
+            """<img src="https://example.org/rss/proxy/h/u">""",
+            MinifluxProxyResolver.resolve(html, "https://example.org/rss/v1/"),
         )
     }
 }

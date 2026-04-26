@@ -36,9 +36,12 @@ internal object MinifluxProxyResolver {
         )
 
     /**
-     * Strip path/query from [rawBaseUrl] so we route proxy requests at the
-     * Miniflux origin. The stored URL is typically the API endpoint
-     * (`https://server/v1/`), but the `/proxy/` path lives at the origin root.
+     * Extract the application root from [rawBaseUrl] so proxy requests route
+     * correctly. The stored URL is typically the API endpoint
+     * (`https://server/v1/` or `https://server/rss/v1/` for subfolder
+     * deployments); strip the trailing `/v1` segment (if present) and any
+     * trailing slashes to recover the Miniflux application base where
+     * `/proxy/...` lives.
      * Returns an empty string when the URL is missing or unparseable, which
      * makes [resolve] a no-op.
      */
@@ -49,7 +52,12 @@ internal object MinifluxProxyResolver {
             val scheme = uri.scheme ?: return ""
             val host = uri.host ?: return ""
             val port = uri.port
-            if (port != -1) "$scheme://$host:$port" else "$scheme://$host"
+            val authority = if (port != -1) "$scheme://$host:$port" else "$scheme://$host"
+            val path = (uri.path ?: "")
+                .trimEnd('/')
+                .removeSuffix("/v1")
+                .trimEnd('/')
+            if (path.isEmpty()) authority else "$authority$path"
         } catch (_: Exception) {
             ""
         }
