@@ -53,13 +53,13 @@ function addImageClickListeners() {
  */
 function decodeMinifluxProxyUpstream(src) {
   if (!src) return null;
-  // Match `/proxy/HMAC/base64url-original` anywhere in the path so
-  // subfolder Miniflux deployments (BASE_URL=https://example.org/rss/) work
-  // alongside root deployments. The decode failure path returns null for any
-  // false positive — only valid base64url decoding to an http(s) URL succeeds.
-  const match = src.match(
-    /^https?:\/\/.+?\/proxy\/[^/]+\/([^/?#]+)(?:[?#]|$)/i,
-  );
+  // Match `/proxy/HMAC/base64url-original` anywhere in the URL or path so
+  // we cover root deployments, subfolder deployments
+  // (BASE_URL=https://example.org/rss/), and articles synced before the
+  // proxy resolver landed (those keep relative `/proxy/...` paths in
+  // content_html). The decode failure path returns null for any false
+  // positive — only valid base64url decoding to an http(s) URL succeeds.
+  const match = src.match(/\/proxy\/[^/]+\/([^/?#]+)(?:[?#]|$)/i);
   if (!match) return null;
   const standardB64 = match[1].replace(/-/g, "+").replace(/_/g, "/");
   let decoded;
