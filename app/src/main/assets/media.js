@@ -17,15 +17,14 @@ function addImageClickListeners() {
     (img) => !img.classList.contains("iframe-embed__image"),
   );
 
-  /** @type {MediaItem[]} */
-  const galleryImages = images.map((i) => ({
-    url: i.src,
-    altText: i.alt || null,
-  }));
-
   images.forEach((img, index) => {
     img.addEventListener("click", (e) => {
       e.preventDefault();
+      /** @type {MediaItem[]} */
+      const galleryImages = images.map((i) => ({
+        url: i.src,
+        altText: i.alt || null,
+      }));
       Android.openImageGallery(JSON.stringify(galleryImages), index);
     });
 
@@ -82,7 +81,7 @@ function handleImageError(img) {
     img.classList.add("loaded");
     return;
   }
-  const currentSrc = img.getAttribute("src") || "";
+  const currentSrc = img.currentSrc || img.getAttribute("src") || "";
   const upstream = decodeMinifluxProxyUpstream(currentSrc);
   if (!upstream) {
     img.classList.add("loaded");
