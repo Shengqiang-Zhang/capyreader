@@ -49,7 +49,20 @@ class AppPreferences(context: Context) {
         )
 
     val refreshInterval: Preference<RefreshInterval>
-        get() = preferenceStore.getEnum("refresh_interval", RefreshInterval.default)
+        get() = preferenceStore.getObject(
+            key = "refresh_interval",
+            defaultValue = RefreshInterval.default,
+            serializer = { it.name },
+            deserializer = {
+                try {
+                    RefreshInterval.valueOf(it)
+                } catch (e: IllegalArgumentException) {
+                    // "ON_START" was removed; map it to MANUALLY_ONLY rather than a
+                    // periodic default so users don't receive unexpected background refreshes.
+                    if (it == "ON_START") RefreshInterval.MANUALLY_ONLY else RefreshInterval.default
+                }
+            }
+        )
 
     val crashReporting: Preference<Boolean>
         get() = preferenceStore.getBoolean("enable_crash_reporting", false)
