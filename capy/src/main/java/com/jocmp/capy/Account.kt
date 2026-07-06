@@ -63,7 +63,10 @@ data class Account(
     private val clientCertManager: ClientCertManager = ClientCertManager { builder, _ -> builder },
     private val userAgent: String,
     private val acceptLanguage: String,
-    private val localHttpClient: OkHttpClient = LocalOkHttpClient.forAccount(path = cacheDirectory),
+    private val localHttpClient: OkHttpClient = LocalOkHttpClient.forAccount(
+        path = cacheDirectory,
+        userAgent = userAgent,
+    ),
     val delegate: AccountDelegate = when (source) {
         Source.LOCAL -> LocalAccountDelegate(
             database = database,
