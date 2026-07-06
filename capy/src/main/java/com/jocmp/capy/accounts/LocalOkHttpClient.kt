@@ -1,5 +1,6 @@
 package com.jocmp.capy.accounts
 
+import com.jocmp.capy.UserAgentInterceptor
 import okhttp3.Credentials
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -8,8 +9,19 @@ import okhttp3.brotli.BrotliInterceptor
 import java.net.URI
 
 internal object LocalOkHttpClient {
-    fun forAccount(path: URI): OkHttpClient {
-        return httpClientBuilder(cachePath = path)
+    /**
+     * The local account fetches feeds and article content directly from arbitrary
+     * third-party sites, some of which sit behind CDNs/WAFs that reject non-browser
+     * User-Agents (e.g. the default `okhttp/x.y.z`, or CapyReader's own identifier)
+     * with an empty 403 body — which surfaces to the user as an unparseable feed.
+     * Presenting the device's real browser User-Agent avoids that bot filtering.
+     * Backend sync clients (Feedbin/Miniflux/Reader) keep the CapyReader identifier.
+     */
+    fun forAccount(path: URI, userAgent: String): OkHttpClient {
+        return httpClientBuilder(
+            cachePath = path,
+            userAgent = userAgent.ifBlank { UserAgentInterceptor.USER_AGENT },
+        )
             .addInterceptor(BrotliInterceptor)
             .addNetworkInterceptor(CacheInterceptor())
             .addInterceptor(LocalBasicAuthInterceptor())

@@ -12,16 +12,19 @@ private const val TIMEOUT_SECONDS = 30L
 
 fun baseHttpClient() = baseHttpClientBuilder().build()
 
-private fun baseHttpClientBuilder() =
+private fun baseHttpClientBuilder(userAgent: String = UserAgentInterceptor.USER_AGENT) =
     OkHttpClient
         .Builder()
-        .addInterceptor(UserAgentInterceptor())
+        .addInterceptor(UserAgentInterceptor(userAgent))
         .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
 
-fun httpClientBuilder(cachePath: URI) =
-    baseHttpClientBuilder()
+fun httpClientBuilder(
+    cachePath: URI,
+    userAgent: String = UserAgentInterceptor.USER_AGENT,
+) =
+    baseHttpClientBuilder(userAgent)
         .cache(
             Cache(
                 directory = File(File(cachePath), "http_cache"),
