@@ -50,7 +50,10 @@ internal class MinifluxAccountDelegate(
 
     override suspend fun refresh(filter: ArticleFilter, cutoffDate: ZonedDateTime?): Result<Unit> {
         return try {
-            refreshAll()
+            when (filter) {
+                is ArticleFilter.Folders -> refreshFolderScope(filter.folderTitle)
+                else -> refreshAll()
+            }
 
             Result.success(Unit)
         } catch (exception: IOException) {
@@ -66,6 +69,25 @@ internal class MinifluxAccountDelegate(
         refreshArticles()
         preferences.touchLastRefreshedAt()
     }
+
+    private suspend fun refreshFolderScope(folderTitle: String) {
+        val categoryId = resolveCategoryId(folderTitle) ?: return
+        val changedAfter = preferences.lastRefreshedAt.get().takeIf { it > 0 }
+
+        fetchEntriesPaged { offset ->
+            miniflux.entries(
+                categoryId = categoryId,
+                limit = MAX_ENTRY_LIMIT,
+                offset = offset,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = changedAfter,
+            )
+        }
+    }
+
+    private suspend fun resolveCategoryId(folderTitle: String): Long? =
+        miniflux.categories().body()?.find { it.title == folderTitle }?.id
 
     override suspend fun markRead(articleIDs: List<String>): Result<Unit> {
         val entryIDs = articleIDs.map { it.toLong() }
