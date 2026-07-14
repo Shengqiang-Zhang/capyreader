@@ -43,13 +43,19 @@ class ArticleRecords(
     /**
      * Creates a new status record. On conflict it does nothing.
      */
-    fun createStatus(articleID: String, updatedAt: ZonedDateTime, read: Boolean) {
+    fun createStatus(
+        articleID: String,
+        updatedAt: ZonedDateTime,
+        read: Boolean,
+        starred: Boolean = false,
+    ) {
         val updatedAtSeconds = updatedAt.toEpochSecond()
 
         database.articlesQueries.createStatus(
             article_id = articleID,
             updated_at = updatedAtSeconds,
             read = read,
+            starred = starred,
         )
     }
 

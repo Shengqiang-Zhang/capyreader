@@ -98,12 +98,14 @@ createStatus:
 INSERT INTO article_statuses(
   article_id,
   updated_at,
-  read
+  read,
+  starred
 )
 VALUES (
 :article_id,
 :updated_at,
-:read
+:read,
+:starred
 )
 ON CONFLICT(article_id) DO NOTHING;
 

@@ -103,8 +103,18 @@ internal class MinifluxAccountDelegate(
         }
     }
 
-    private suspend fun resolveCategoryId(folderTitle: String): Long? =
-        miniflux.categories().body()?.find { it.title == folderTitle }?.id
+    private suspend fun resolveCategoryId(folderTitle: String): Long? {
+        val categoryId = miniflux.categories().body()?.find { it.title == folderTitle }?.id
+
+        if (categoryId == null) {
+            // Category lookup failed (transient HTTP error) or the folder was
+            // renamed/removed server-side. The scoped refresh becomes a no-op;
+            // log so the silent path is at least diagnosable.
+            CapyLog.warn("resolve_category", mapOf("folder" to folderTitle))
+        }
+
+        return categoryId
+    }
 
     override suspend fun markRead(articleIDs: List<String>): Result<Unit> {
         val entryIDs = articleIDs.map { it.toLong() }
@@ -434,7 +444,24 @@ internal class MinifluxAccountDelegate(
         // relative paths unresolvable.
         val minifluxBaseUrl = preferences.url.get()
 
+        // A scoped (folder/feed) refresh skips the account-wide refreshFeeds(),
+        // so a feed referenced by these entries may not exist locally yet (e.g. a
+        // feed added to the category from another client since the last full sync).
+        // Every article-listing query INNER JOINs feeds, so an article whose feed
+        // is missing would be invisible. Miniflux embeds each entry's feed in the
+        // /entries payload, so upsert any missing ones (favicon backfills on the
+        // next full refresh). Feeds already present are left untouched.
+        val knownFeedIDs = database.feedsQueries.all().executeAsList().map { it.id }.toSet()
+        val missingFeeds = entries
+            .mapNotNull { it.feed }
+            .distinctBy { it.id }
+            .filterNot { it.id.toString() in knownFeedIDs }
+
         database.transactionWithErrorHandling {
+            missingFeeds.forEach { feed ->
+                upsertFeed(feed, icons = emptyMap())
+            }
+
             entries.forEach { entry ->
                 val updated = TimeHelpers.nowUTC()
                 val articleID = entry.id.toString()
@@ -459,7 +486,14 @@ internal class MinifluxAccountDelegate(
                 articleRecords.createStatus(
                     articleID = articleID,
                     updatedAt = updated,
-                    read = entry.status == EntryStatus.READ
+                    read = entry.status == EntryStatus.READ,
+                    // Persist the server's starred flag for new articles. A scoped
+                    // refresh skips refreshStarredEntries(); without this a newly
+                    // fetched, already-starred entry would be stored unstarred, and
+                    // tapping the star would toggle the remote bookmark OFF (Miniflux
+                    // uses a toggle endpoint), silently deleting it. ON CONFLICT DO
+                    // NOTHING keeps existing/pending local star state intact.
+                    starred = entry.starred,
                 )
 
                 enclosures.forEach { enclosure ->
