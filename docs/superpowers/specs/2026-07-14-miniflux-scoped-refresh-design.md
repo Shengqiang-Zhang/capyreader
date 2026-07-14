@@ -248,6 +248,37 @@ pull-to-refresh (in folder "News")
 - `minifluxclient/src/main/java/com/jocmp/minifluxclient/Miniflux.kt`
 - `capy/src/test/java/com/jocmp/capy/accounts/miniflux/MinifluxAccountDelegateTest.kt`
 
+## Post-review refinements (code-review panel, 8 reviewers)
+
+Two load-bearing issues surfaced during review and were fixed before merge:
+
+1. **Missing-feed visibility (5/5 Sonnet reviewers).** A folder-scoped refresh skips
+   `refreshFeeds()`, and every article-listing query `INNER JOIN`s `feeds`. So entries
+   from a feed not yet synced locally (e.g. added to the category from another client
+   since the last full refresh) would be saved but invisible. Fix: `saveEntries` upserts
+   any feed absent locally from the feed object Miniflux embeds in each `/entries` item —
+   zero extra requests, and feeds already present are left untouched (no favicon/tagging
+   clobber).
+
+2. **Starred-state data loss (2/2 Codex, high).** Scoped refresh skips the global starred
+   reconciliation and `createStatus` only persisted `read`, so a newly fetched
+   already-starred entry was stored unstarred. Because Miniflux's add/removeStar use a
+   single *toggle* endpoint, tapping the star on such an article would toggle the remote
+   bookmark **off**. Fix: `createStatus` now persists `starred` too (still
+   `ON CONFLICT DO NOTHING`, so existing/pending local state is protected).
+
+Also added a warning log when a folder title can't be resolved to a category, so the
+intentional no-op path is diagnosable.
+
+### Known limitation (accepted)
+
+Because a scoped refresh preserves the global `lastRefreshedAt` watermark and never
+advances it, repeated scoped pulls of the same folder/feed with no intervening full
+refresh reuse the same `changed_after` value and re-fetch that window each time (writes
+are idempotent, so this is a bandwidth nuance, not a correctness issue). In practice the
+window is bounded because a full refresh runs on every app open. A per-scope watermark
+was considered and deferred to keep the content-only design simple.
+
 ## Expected impact
 
 Pull-to-refresh inside a folder/feed drops from a full-account sync (all feeds + all
