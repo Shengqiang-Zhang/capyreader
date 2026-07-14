@@ -50,10 +50,11 @@ internal class MinifluxAccountDelegate(
 
     override suspend fun refresh(filter: ArticleFilter, cutoffDate: ZonedDateTime?): Result<Unit> {
         return try {
-            refreshIntegrationStatus()
-            refreshFeeds()
-            refreshArticles()
-            preferences.touchLastRefreshedAt()
+            when (filter) {
+                is ArticleFilter.Folders -> refreshFolderScope(filter.folderTitle)
+                is ArticleFilter.Feeds -> refreshFeedScope(filter.feedID)
+                else -> refreshAll()
+            }
 
             Result.success(Unit)
         } catch (exception: IOException) {
@@ -61,6 +62,58 @@ internal class MinifluxAccountDelegate(
         } catch (e: UnauthorizedError) {
             Result.failure(e)
         }
+    }
+
+    private suspend fun refreshAll() {
+        refreshIntegrationStatus()
+        refreshFeeds()
+        refreshArticles()
+        preferences.touchLastRefreshedAt()
+    }
+
+    private suspend fun refreshFolderScope(folderTitle: String) {
+        val categoryId = resolveCategoryId(folderTitle) ?: return
+        val changedAfter = preferences.lastRefreshedAt.get().takeIf { it > 0 }
+
+        fetchEntriesPaged { offset ->
+            miniflux.entries(
+                categoryId = categoryId,
+                limit = MAX_ENTRY_LIMIT,
+                offset = offset,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = changedAfter,
+            )
+        }
+    }
+
+    private suspend fun refreshFeedScope(feedID: String) {
+        val id = feedID.toLongOrNull() ?: return
+        val changedAfter = preferences.lastRefreshedAt.get().takeIf { it > 0 }
+
+        fetchEntriesPaged { offset ->
+            miniflux.entries(
+                feedId = id,
+                limit = MAX_ENTRY_LIMIT,
+                offset = offset,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = changedAfter,
+            )
+        }
+    }
+
+    private suspend fun resolveCategoryId(folderTitle: String): Long? {
+        val categoryId = miniflux.categories().body()?.find { it.title == folderTitle }?.id
+
+        if (categoryId == null) {
+            // Category lookup failed (transient HTTP error) or the folder was
+            // renamed/removed server-side. The scoped refresh becomes a no-op;
+            // log so the silent path is at least diagnosable.
+            CapyLog.warn("resolve_category", mapOf("folder" to folderTitle))
+        }
+
+        return categoryId
     }
 
     override suspend fun markRead(articleIDs: List<String>): Result<Unit> {
@@ -349,39 +402,39 @@ internal class MinifluxAccountDelegate(
         return ids
     }
 
-    private suspend fun fetchAllEntries() = coroutineScope {
-        val changedAfter = preferences.lastRefreshedAt.get().takeIf { it > 0 }
-
-        val firstResult = miniflux.entries(
-            limit = MAX_ENTRY_LIMIT,
-            offset = 0,
-            order = "published_at",
-            direction = "desc",
-            changedAfter = changedAfter,
-        ).body() ?: return@coroutineScope
-
-        val total = firstResult.total
+    private suspend fun fetchEntriesPaged(
+        fetch: suspend (offset: Int) -> Response<EntryResultSet>,
+    ) = coroutineScope {
+        val firstResult = fetch(0).body() ?: return@coroutineScope
 
         saveEntries(firstResult.entries)
 
         val semaphore = Semaphore(MAX_CONCURRENT_FETCHES)
 
-        (MAX_ENTRY_LIMIT until total step MAX_ENTRY_LIMIT)
+        (MAX_ENTRY_LIMIT until firstResult.total step MAX_ENTRY_LIMIT)
             .map { offset ->
                 async {
                     semaphore.withPermit {
-                        val entries = miniflux.entries(
-                            limit = MAX_ENTRY_LIMIT,
-                            offset = offset,
-                            order = "published_at",
-                            direction = "desc",
-                            changedAfter = changedAfter,
-                        ).body()?.entries ?: return@withPermit
+                        val entries = fetch(offset).body()?.entries ?: return@withPermit
                         saveEntries(entries)
                     }
                 }
             }
             .awaitAll()
+    }
+
+    private suspend fun fetchAllEntries() {
+        val changedAfter = preferences.lastRefreshedAt.get().takeIf { it > 0 }
+
+        fetchEntriesPaged { offset ->
+            miniflux.entries(
+                limit = MAX_ENTRY_LIMIT,
+                offset = offset,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = changedAfter,
+            )
+        }
     }
 
     private fun saveEntries(entries: List<Entry>) {
@@ -391,7 +444,24 @@ internal class MinifluxAccountDelegate(
         // relative paths unresolvable.
         val minifluxBaseUrl = preferences.url.get()
 
+        // A scoped (folder/feed) refresh skips the account-wide refreshFeeds(),
+        // so a feed referenced by these entries may not exist locally yet (e.g. a
+        // feed added to the category from another client since the last full sync).
+        // Every article-listing query INNER JOINs feeds, so an article whose feed
+        // is missing would be invisible. Miniflux embeds each entry's feed in the
+        // /entries payload, so upsert any missing ones (favicon backfills on the
+        // next full refresh). Feeds already present are left untouched.
+        val knownFeedIDs = database.feedsQueries.all().executeAsList().map { it.id }.toSet()
+        val missingFeeds = entries
+            .mapNotNull { it.feed }
+            .distinctBy { it.id }
+            .filterNot { it.id.toString() in knownFeedIDs }
+
         database.transactionWithErrorHandling {
+            missingFeeds.forEach { feed ->
+                upsertFeed(feed, icons = emptyMap())
+            }
+
             entries.forEach { entry ->
                 val updated = TimeHelpers.nowUTC()
                 val articleID = entry.id.toString()
@@ -416,7 +486,14 @@ internal class MinifluxAccountDelegate(
                 articleRecords.createStatus(
                     articleID = articleID,
                     updatedAt = updated,
-                    read = entry.status == EntryStatus.READ
+                    read = entry.status == EntryStatus.READ,
+                    // Persist the server's starred flag for new articles. A scoped
+                    // refresh skips refreshStarredEntries(); without this a newly
+                    // fetched, already-starred entry would be stored unstarred, and
+                    // tapping the star would toggle the remote bookmark OFF (Miniflux
+                    // uses a toggle endpoint), silently deleting it. ON CONFLICT DO
+                    // NOTHING keeps existing/pending local star state intact.
+                    starred = entry.starred,
                 )
 
                 enclosures.forEach { enclosure ->

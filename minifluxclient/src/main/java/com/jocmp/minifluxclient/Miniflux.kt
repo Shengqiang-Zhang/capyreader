@@ -56,6 +56,7 @@ interface Miniflux {
         @Query("starred") starred: Boolean? = null,
         @Query("search") search: String? = null,
         @Query("category_id") categoryId: Long? = null,
+        @Query("feed_id") feedId: Long? = null,
         @Query("changed_after") changedAfter: Long? = null,
     ): Response<EntryResultSet>
 

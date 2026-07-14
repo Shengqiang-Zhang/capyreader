@@ -39,6 +39,7 @@ class ArticleFixture(private val database: Database = InMemoryDatabaseProvider()
                 article_id = id,
                 updated_at = publishedAt,
                 read = read,
+                starred = false,
             )
             if (starred) {
                 database.articlesQueries.markStarred(

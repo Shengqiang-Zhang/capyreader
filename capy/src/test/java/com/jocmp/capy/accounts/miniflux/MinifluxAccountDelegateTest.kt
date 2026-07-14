@@ -3,12 +3,15 @@ package com.jocmp.capy.accounts.miniflux
 import com.jocmp.capy.AccountDelegate
 import com.jocmp.capy.AccountPreferences
 import com.jocmp.capy.ArticleFilter
+import com.jocmp.capy.ArticleStatus
 import com.jocmp.capy.InMemoryDataStore
 import com.jocmp.capy.InMemoryDatabaseProvider
 import com.jocmp.capy.accounts.AddFeedResult
 import com.jocmp.capy.db.Database
+import com.jocmp.capy.fixtures.ArticleFixture
 import com.jocmp.capy.fixtures.FeedFixture
 import com.jocmp.capy.persistence.EnclosureRecords
+import com.jocmp.capy.persistence.articleMapper
 import com.jocmp.minifluxclient.Category
 import com.jocmp.minifluxclient.CreateCategoryRequest
 import com.jocmp.minifluxclient.CreateFeedRequest
@@ -42,6 +45,7 @@ class MinifluxAccountDelegateTest {
     private lateinit var database: Database
     private lateinit var miniflux: Miniflux
     private lateinit var feedFixture: FeedFixture
+    private lateinit var preferences: AccountPreferences
     private lateinit var delegate: AccountDelegate
 
     private val category = Category(
@@ -172,7 +176,8 @@ class MinifluxAccountDelegateTest {
         database = InMemoryDatabaseProvider.build(accountID)
         feedFixture = FeedFixture(database)
         miniflux = mockk()
-        delegate = MinifluxAccountDelegate(database, miniflux, AccountPreferences(InMemoryDataStore()))
+        preferences = AccountPreferences(InMemoryDataStore())
+        delegate = MinifluxAccountDelegate(database, miniflux, preferences)
     }
 
     @Test
@@ -248,6 +253,284 @@ class MinifluxAccountDelegateTest {
         val result = delegate.refresh(ArticleFilter.default())
 
         assertEquals(result, Result.failure(networkError))
+    }
+
+    @Test
+    fun refresh_folderScope_fetchesOnlyCategoryEntries() = runTest {
+        // Feed 2 must exist so the saved article is visible to the feeds-joined read query.
+        FeedFixture(database).create(feedID = "2", folderNames = listOf("Tech"))
+
+        coEvery { miniflux.categories() }.returns(Response.success(categories))
+        coEvery {
+            miniflux.entries(
+                categoryId = 1,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(arsTechnicaArticle)))
+        )
+
+        delegate.refresh(ArticleFilter.Folders(folderTitle = "Tech", folderStatus = ArticleStatus.ALL))
+
+        val unread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+        assertEquals(expected = 1, actual = unread.size)
+
+        // Full-refresh work must NOT run in a scoped refresh.
+        coVerify(exactly = 0) { miniflux.feeds() }
+        coVerify(exactly = 0) { miniflux.integrationStatus() }
+        coVerify(exactly = 0) { miniflux.entries(starred = true, limit = any(), offset = any()) }
+        coVerify(exactly = 0) {
+            miniflux.entries(status = EntryStatus.UNREAD.value, limit = any(), offset = any())
+        }
+    }
+
+    @Test
+    fun refresh_folderScope_doesNotMarkOtherFoldersRead() = runTest {
+        FeedFixture(database).create(feedID = "2", folderNames = listOf("Tech"))
+        // A pre-existing UNREAD article in a different feed/folder (its own feed row is created by the fixture).
+        val other = ArticleFixture(database).create(read = false)
+
+        coEvery { miniflux.categories() }.returns(Response.success(categories))
+        coEvery {
+            miniflux.entries(
+                categoryId = 1,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(arsTechnicaArticle)))
+        )
+
+        delegate.refresh(ArticleFilter.Folders(folderTitle = "Tech", folderStatus = ArticleStatus.ALL))
+
+        val reloaded = database.articlesQueries
+            .findBy(articleID = other.id, mapper = ::articleMapper)
+            .executeAsOne()
+        assertEquals(expected = false, actual = reloaded.read)
+    }
+
+    @Test
+    fun refresh_folderScope_forwardsAndPreservesWatermark() = runTest {
+        val watermark = 1_700_000_000L
+        preferences.lastRefreshedAt.set(watermark)
+
+        coEvery { miniflux.categories() }.returns(Response.success(categories))
+        coEvery {
+            miniflux.entries(
+                categoryId = 1,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = watermark,
+            )
+        }.returns(Response.success(EntryResultSet(total = 0, entries = emptyList())))
+
+        delegate.refresh(ArticleFilter.Folders(folderTitle = "Tech", folderStatus = ArticleStatus.ALL))
+
+        // Existing watermark is forwarded as changed_after (strict mock would throw
+        // if the call didn't match) and left untouched for the next full refresh.
+        coVerify {
+            miniflux.entries(
+                categoryId = 1,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = watermark,
+            )
+        }
+        assertEquals(expected = watermark, actual = preferences.lastRefreshedAt.get())
+    }
+
+    @Test
+    fun refresh_folderScope_upsertsMissingFeedSoArticleIsVisible() = runTest {
+        // Feed 5 is intentionally NOT seeded locally. Miniflux embeds the feed in
+        // each entry, so a scoped refresh must create it or the article stays
+        // invisible to the feeds-joined listing queries.
+        val entryWithEmbeddedFeed = vergeArticle.copy(feed = vergeFeed)
+
+        coEvery { miniflux.categories() }.returns(Response.success(categories))
+        coEvery {
+            miniflux.entries(
+                categoryId = 1,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(entryWithEmbeddedFeed)))
+        )
+
+        delegate.refresh(ArticleFilter.Folders(folderTitle = "Tech", folderStatus = ArticleStatus.ALL))
+
+        val feedIDs = database.feedsQueries.all().executeAsList().map { it.id }
+        assertTrue(feedIDs.contains("5"))
+
+        val article = database.articlesQueries
+            .findBy(articleID = vergeArticle.id.toString(), mapper = ::articleMapper)
+            .executeAsOne()
+        assertEquals(expected = vergeArticle.id.toString(), actual = article.id)
+    }
+
+    @Test
+    fun refresh_folderScope_persistsStarredState() = runTest {
+        FeedFixture(database).create(feedID = "2", folderNames = listOf("Tech"))
+        val starredEntry = arsTechnicaArticle.copy(starred = true)
+
+        coEvery { miniflux.categories() }.returns(Response.success(categories))
+        coEvery {
+            miniflux.entries(
+                categoryId = 1,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(starredEntry)))
+        )
+
+        delegate.refresh(ArticleFilter.Folders(folderTitle = "Tech", folderStatus = ArticleStatus.ALL))
+
+        val article = database.articlesQueries
+            .findBy(articleID = arsTechnicaArticle.id.toString(), mapper = ::articleMapper)
+            .executeAsOne()
+        assertTrue(article.starred)
+    }
+
+    @Test
+    fun refresh_folderScope_doesNotUnstarOtherArticles() = runTest {
+        FeedFixture(database).create(feedID = "2", folderNames = listOf("Tech"))
+        val starredOther = ArticleFixture(database).create(read = true, starred = true)
+
+        coEvery { miniflux.categories() }.returns(Response.success(categories))
+        coEvery {
+            miniflux.entries(
+                categoryId = 1,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(arsTechnicaArticle)))
+        )
+
+        delegate.refresh(ArticleFilter.Folders(folderTitle = "Tech", folderStatus = ArticleStatus.ALL))
+
+        val reloaded = database.articlesQueries
+            .findBy(articleID = starredOther.id, mapper = ::articleMapper)
+            .executeAsOne()
+        assertTrue(reloaded.starred)
+    }
+
+    @Test
+    fun refresh_folderScope_unknownFolder_isNoOp() = runTest {
+        // categories() only contains "Tech"; strict mock has no stub for entries(),
+        // so if the scoped path tried to fetch, the test would throw.
+        coEvery { miniflux.categories() }.returns(Response.success(categories))
+
+        val result = delegate.refresh(
+            ArticleFilter.Folders(folderTitle = "Nonexistent", folderStatus = ArticleStatus.ALL)
+        )
+
+        assertTrue(result.isSuccess)
+        val articles = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+        assertEquals(expected = 0, actual = articles.size)
+    }
+
+    @Test
+    fun refresh_feedScope_fetchesOnlyFeedEntries() = runTest {
+        FeedFixture(database).create(feedID = "2", folderNames = listOf("Tech"))
+
+        coEvery {
+            miniflux.entries(
+                feedId = 2,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(arsTechnicaArticle)))
+        )
+
+        delegate.refresh(
+            ArticleFilter.Feeds(feedID = "2", folderTitle = "Tech", feedStatus = ArticleStatus.ALL)
+        )
+
+        val unread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+        assertEquals(expected = 1, actual = unread.size)
+
+        coVerify(exactly = 0) { miniflux.feeds() }
+        coVerify(exactly = 0) { miniflux.categories() }
+        coVerify {
+            miniflux.entries(
+                feedId = 2,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }
+    }
+
+    @Test
+    fun refresh_feedScope_invalidID_isNoOp() = runTest {
+        // Non-numeric feed id: no fetch should happen (strict mock throws otherwise).
+        val result = delegate.refresh(
+            ArticleFilter.Feeds(feedID = "not-a-number", folderTitle = null, feedStatus = ArticleStatus.ALL)
+        )
+
+        assertTrue(result.isSuccess)
+        val articles = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+        assertEquals(expected = 0, actual = articles.size)
+    }
+
+    @Test
+    fun refresh_feedScope_preservesLastRefreshedWatermark() = runTest {
+        val watermark = 1_700_000_000L
+        preferences.lastRefreshedAt.set(watermark)
+        FeedFixture(database).create(feedID = "2", folderNames = listOf("Tech"))
+
+        coEvery {
+            miniflux.entries(
+                feedId = 2,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = watermark,
+            )
+        }.returns(Response.success(EntryResultSet(total = 0, entries = emptyList())))
+
+        delegate.refresh(
+            ArticleFilter.Feeds(feedID = "2", folderTitle = "Tech", feedStatus = ArticleStatus.ALL)
+        )
+
+        assertEquals(expected = watermark, actual = preferences.lastRefreshedAt.get())
     }
 
     @Test
