@@ -50,10 +50,7 @@ internal class MinifluxAccountDelegate(
 
     override suspend fun refresh(filter: ArticleFilter, cutoffDate: ZonedDateTime?): Result<Unit> {
         return try {
-            refreshIntegrationStatus()
-            refreshFeeds()
-            refreshArticles()
-            preferences.touchLastRefreshedAt()
+            refreshAll()
 
             Result.success(Unit)
         } catch (exception: IOException) {
@@ -61,6 +58,13 @@ internal class MinifluxAccountDelegate(
         } catch (e: UnauthorizedError) {
             Result.failure(e)
         }
+    }
+
+    private suspend fun refreshAll() {
+        refreshIntegrationStatus()
+        refreshFeeds()
+        refreshArticles()
+        preferences.touchLastRefreshedAt()
     }
 
     override suspend fun markRead(articleIDs: List<String>): Result<Unit> {
@@ -349,39 +353,39 @@ internal class MinifluxAccountDelegate(
         return ids
     }
 
-    private suspend fun fetchAllEntries() = coroutineScope {
-        val changedAfter = preferences.lastRefreshedAt.get().takeIf { it > 0 }
-
-        val firstResult = miniflux.entries(
-            limit = MAX_ENTRY_LIMIT,
-            offset = 0,
-            order = "published_at",
-            direction = "desc",
-            changedAfter = changedAfter,
-        ).body() ?: return@coroutineScope
-
-        val total = firstResult.total
+    private suspend fun fetchEntriesPaged(
+        fetch: suspend (offset: Int) -> Response<EntryResultSet>,
+    ) = coroutineScope {
+        val firstResult = fetch(0).body() ?: return@coroutineScope
 
         saveEntries(firstResult.entries)
 
         val semaphore = Semaphore(MAX_CONCURRENT_FETCHES)
 
-        (MAX_ENTRY_LIMIT until total step MAX_ENTRY_LIMIT)
+        (MAX_ENTRY_LIMIT until firstResult.total step MAX_ENTRY_LIMIT)
             .map { offset ->
                 async {
                     semaphore.withPermit {
-                        val entries = miniflux.entries(
-                            limit = MAX_ENTRY_LIMIT,
-                            offset = offset,
-                            order = "published_at",
-                            direction = "desc",
-                            changedAfter = changedAfter,
-                        ).body()?.entries ?: return@withPermit
+                        val entries = fetch(offset).body()?.entries ?: return@withPermit
                         saveEntries(entries)
                     }
                 }
             }
             .awaitAll()
+    }
+
+    private suspend fun fetchAllEntries() {
+        val changedAfter = preferences.lastRefreshedAt.get().takeIf { it > 0 }
+
+        fetchEntriesPaged { offset ->
+            miniflux.entries(
+                limit = MAX_ENTRY_LIMIT,
+                offset = offset,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = changedAfter,
+            )
+        }
     }
 
     private fun saveEntries(entries: List<Entry>) {
