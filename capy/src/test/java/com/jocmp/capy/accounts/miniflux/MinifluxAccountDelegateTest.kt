@@ -338,6 +338,46 @@ class MinifluxAccountDelegateTest {
     }
 
     @Test
+    fun refresh_feedScope_fetchesOnlyFeedEntries() = runTest {
+        FeedFixture(database).create(feedID = "2", folderNames = listOf("Tech"))
+
+        coEvery {
+            miniflux.entries(
+                feedId = 2,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(arsTechnicaArticle)))
+        )
+
+        delegate.refresh(
+            ArticleFilter.Feeds(feedID = "2", folderTitle = "Tech", feedStatus = ArticleStatus.ALL)
+        )
+
+        val unread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+        assertEquals(expected = 1, actual = unread.size)
+
+        coVerify(exactly = 0) { miniflux.feeds() }
+        coVerify(exactly = 0) { miniflux.categories() }
+        coVerify {
+            miniflux.entries(
+                feedId = 2,
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }
+    }
+
+    @Test
     fun markRead() = runTest {
         val id = 777L
 

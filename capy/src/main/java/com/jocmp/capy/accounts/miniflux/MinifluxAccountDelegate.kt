@@ -52,6 +52,7 @@ internal class MinifluxAccountDelegate(
         return try {
             when (filter) {
                 is ArticleFilter.Folders -> refreshFolderScope(filter.folderTitle)
+                is ArticleFilter.Feeds -> refreshFeedScope(filter.feedID)
                 else -> refreshAll()
             }
 
@@ -77,6 +78,22 @@ internal class MinifluxAccountDelegate(
         fetchEntriesPaged { offset ->
             miniflux.entries(
                 categoryId = categoryId,
+                limit = MAX_ENTRY_LIMIT,
+                offset = offset,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = changedAfter,
+            )
+        }
+    }
+
+    private suspend fun refreshFeedScope(feedID: String) {
+        val id = feedID.toLongOrNull() ?: return
+        val changedAfter = preferences.lastRefreshedAt.get().takeIf { it > 0 }
+
+        fetchEntriesPaged { offset ->
+            miniflux.entries(
+                feedId = id,
                 limit = MAX_ENTRY_LIMIT,
                 offset = offset,
                 order = "published_at",
