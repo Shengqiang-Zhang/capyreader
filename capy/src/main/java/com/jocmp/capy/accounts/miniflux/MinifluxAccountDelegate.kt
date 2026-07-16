@@ -19,6 +19,7 @@ import com.jocmp.capy.persistence.FeedRecords
 import com.jocmp.capy.persistence.TaggingRecords
 import com.jocmp.minifluxclient.CreateCategoryRequest
 import com.jocmp.minifluxclient.CreateFeedRequest
+import com.jocmp.minifluxclient.Enclosure
 import com.jocmp.minifluxclient.Entry
 import com.jocmp.minifluxclient.EntryResultSet
 import com.jocmp.minifluxclient.EntryStatus
@@ -26,6 +27,7 @@ import com.jocmp.minifluxclient.Miniflux
 import com.jocmp.minifluxclient.UpdateCategoryRequest
 import com.jocmp.minifluxclient.UpdateEntriesRequest
 import com.jocmp.minifluxclient.UpdateFeedRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -35,6 +37,7 @@ import kotlinx.coroutines.sync.withPermit
 import okio.IOException
 import org.jsoup.Jsoup
 import retrofit2.Response
+import java.net.HttpURLConnection
 import java.time.ZonedDateTime
 import com.jocmp.minifluxclient.Feed as MinifluxFeed
 
@@ -47,6 +50,17 @@ internal class MinifluxAccountDelegate(
     private val enclosureRecords = EnclosureRecords(database)
     private val feedRecords = FeedRecords(database)
     private val taggingRecords = TaggingRecords(database)
+
+    /** Outcome of fetching a complete set of entry IDs. */
+    private sealed interface EntryIDSync {
+        data class Complete(val ids: List<String>) : EntryIDSync
+
+        /** The server has no `/entries/ids` route (Miniflux < 2.3.2). */
+        object Unsupported : EntryIDSync
+
+        /** A request failed, so the set cannot be reconciled against. */
+        object Incomplete : EntryIDSync
+    }
 
     override suspend fun refresh(filter: ArticleFilter, cutoffDate: ZonedDateTime?): Result<Unit> {
         return try {
@@ -65,8 +79,16 @@ internal class MinifluxAccountDelegate(
     }
 
     private suspend fun refreshAll() {
-        refreshIntegrationStatus()
-        refreshFeeds()
+        // The integration status is independent of everything else, so it rides
+        // alongside the feed fetch rather than adding a round trip ahead of it.
+        coroutineScope {
+            val integrationStatus = async { refreshIntegrationStatus() }
+            val feeds = async { refreshFeeds() }
+
+            integrationStatus.await()
+            feeds.await()
+        }
+
         refreshArticles()
         preferences.touchLastRefreshedAt()
     }
@@ -326,6 +348,11 @@ internal class MinifluxAccountDelegate(
             if (response.isSuccessful && status != null) {
                 preferences.canSaveArticleExternally.set(status.has_integrations)
             }
+        } catch (e: CancellationException) {
+            // This runs alongside refreshFeeds(), so a failure there cancels
+            // this coroutine. Swallowing that below would break the scope's
+            // structured cancellation.
+            throw e
         } catch (e: Exception) {
             CapyLog.warn("refresh_integration_status", mapOf("error" to e.message))
         }
@@ -366,40 +393,171 @@ internal class MinifluxAccountDelegate(
     }
 
     private suspend fun refreshStarredEntries() {
-        val ids = fetchAllEntryIDs { offset ->
-            miniflux.entries(starred = true, limit = MAX_ENTRY_LIMIT, offset = offset)
-        }
+        val ids = entryIDs(starred = true) ?: return
 
         articleRecords.markAllStarred(articleIDs = ids)
     }
 
     private suspend fun refreshUnreadEntries() {
-        val ids = fetchAllEntryIDs { offset ->
-            miniflux.entries(
-                status = EntryStatus.UNREAD.value,
-                limit = MAX_ENTRY_LIMIT,
-                offset = offset
-            )
-        }
+        val ids = entryIDs(status = EntryStatus.UNREAD.value) ?: return
 
         articleRecords.markAllUnread(articleIDs = ids)
     }
 
-    private suspend fun fetchAllEntryIDs(
-        fetch: suspend (offset: Int) -> Response<EntryResultSet>
-    ): List<String> {
-        val firstPage = fetch(0).body() ?: return emptyList()
-        val ids = firstPage.entries.map { it.id.toString() }.toMutableList()
+    /**
+     * The complete set of entry IDs matching the query, or null when it could
+     * not be fetched in full.
+     *
+     * Callers reconcile local state against the whole set: [ArticleRecords.markAllUnread]
+     * marks every article *outside* it as read, and [ArticleRecords.markAllStarred]
+     * un-stars every article outside it. Reconciling against a partial list would
+     * silently mark unread articles read and drop stars, so a failed or truncated
+     * fetch returns null and the caller skips reconciliation entirely.
+     */
+    private suspend fun entryIDs(status: String? = null, starred: Boolean? = null): List<String>? {
+        val ids = when (val result = fetchEntryIDs(status = status, starred = starred)) {
+            is EntryIDSync.Complete -> result.ids
+            EntryIDSync.Incomplete -> null
+            // Probed on every refresh rather than cached. A 400/404 also comes
+            // from proxies, rolling deploys, and route-level policies, so a
+            // remembered "unsupported" would strand the account on the expensive
+            // fallback for the rest of the session and miss a server upgrade.
+            // The probe is a single small request; the fallback it guards
+            // downloads the entire backlog.
+            EntryIDSync.Unsupported -> fetchEntryIDsFromEntries(status = status, starred = starred)
+        }
 
-        var offset = MAX_ENTRY_LIMIT
-        while (ids.size < firstPage.total) {
-            val page = fetch(offset).body() ?: break
-            if (page.entries.isEmpty()) break
-            ids.addAll(page.entries.map { it.id.toString() })
-            offset += MAX_ENTRY_LIMIT
+        if (ids == null) {
+            // Reconciliation is skipped this refresh. refresh() still reports
+            // success, so without this the account would silently stop syncing
+            // read and starred state for as long as the server keeps failing.
+            CapyLog.warn(
+                "entry_ids_incomplete",
+                mapOf("status" to status.orEmpty(), "starred" to starred.toString())
+            )
         }
 
         return ids
+    }
+
+    /**
+     * Fetches IDs via `GET /entries/ids`, which omits entry content. One request
+     * covers up to [MAX_ENTRY_ID_LIMIT] entries.
+     */
+    private suspend fun fetchEntryIDs(status: String?, starred: Boolean?): EntryIDSync {
+        val response = miniflux.entryIDs(
+            status = status,
+            starred = starred,
+            limit = MAX_ENTRY_ID_LIMIT,
+            offset = 0,
+        )
+
+        // Miniflux older than 2.3.2 has no `/entries/ids` route, so the path
+        // falls through to `GET /entries/{entryID}` and is rejected as an
+        // invalid entry ID with a 400. 404 covers servers (or proxies) that
+        // match the path to nothing at all.
+        if (response.code() == HttpURLConnection.HTTP_BAD_REQUEST ||
+            response.code() == HttpURLConnection.HTTP_NOT_FOUND
+        ) {
+            CapyLog.info("entry_ids_unsupported", mapOf("code" to response.code().toString()))
+
+            return EntryIDSync.Unsupported
+        }
+
+        val firstPage = response.body() ?: return EntryIDSync.Incomplete
+
+        val ids = pagedEntryIDs(
+            total = firstPage.total,
+            firstPageIDs = firstPage.entry_ids.map { it.toString() },
+            pageSize = MAX_ENTRY_ID_LIMIT,
+        ) { offset ->
+            miniflux.entryIDs(
+                status = status,
+                starred = starred,
+                limit = MAX_ENTRY_ID_LIMIT,
+                offset = offset,
+            ).body()?.entry_ids?.map { it.toString() }
+        }
+
+        return ids?.let { EntryIDSync.Complete(it) } ?: EntryIDSync.Incomplete
+    }
+
+    /**
+     * Fallback for servers without `GET /entries/ids`. Every page carries the
+     * full content of all [MAX_ENTRY_LIMIT] entries only for their IDs to be
+     * kept, so this downloads the entire unread (or starred) backlog on each
+     * refresh. It exists solely for Miniflux older than 2.3.2.
+     */
+    private suspend fun fetchEntryIDsFromEntries(status: String?, starred: Boolean?): List<String>? {
+        val firstPage = miniflux.entries(
+            status = status,
+            starred = starred,
+            limit = MAX_ENTRY_LIMIT,
+            offset = 0,
+        ).body() ?: return null
+
+        return pagedEntryIDs(
+            total = firstPage.total,
+            firstPageIDs = firstPage.entries.map { it.id.toString() },
+            pageSize = MAX_ENTRY_LIMIT,
+        ) { offset ->
+            miniflux.entries(
+                status = status,
+                starred = starred,
+                limit = MAX_ENTRY_LIMIT,
+                offset = offset,
+            ).body()?.entries?.map { it.id.toString() }
+        }
+    }
+
+    /**
+     * Collects the remaining pages after [firstPageIDs], or null if the complete
+     * set of [total] IDs could not be assembled.
+     */
+    private suspend fun pagedEntryIDs(
+        total: Int,
+        firstPageIDs: List<String>,
+        pageSize: Int,
+        fetchPage: suspend (offset: Int) -> List<String>?,
+    ): List<String>? {
+        if (firstPageIDs.size >= total) {
+            return firstPageIDs
+        }
+
+        val remaining = fetchPagesConcurrently(pageSize until total step pageSize, fetchPage)
+            ?: return null
+
+        // Offset pagination is not a snapshot. Entries added or removed
+        // server-side between page requests shift rows across page boundaries,
+        // so a page can come back short or repeat an entry already seen. Since
+        // the caller reconciles against the whole set, a set that does not
+        // account for every advertised entry has to be treated as a failed
+        // fetch -- reconciling against it would mark the missing articles read
+        // and drop their stars. The next refresh retries from a fresh snapshot.
+        val ids = (firstPageIDs + remaining).distinct()
+
+        return ids.takeIf { it.size == total }
+    }
+
+    /**
+     * Runs [fetch] across [offsets] with bounded concurrency, preserving offset
+     * order. Returns null if any page fails, since callers need the full set.
+     */
+    private suspend fun fetchPagesConcurrently(
+        offsets: IntProgression,
+        fetch: suspend (offset: Int) -> List<String>?,
+    ): List<String>? = coroutineScope {
+        val semaphore = Semaphore(MAX_CONCURRENT_FETCHES)
+
+        val pages = offsets.map { offset ->
+            async { semaphore.withPermit { fetch(offset) } }
+        }.awaitAll()
+
+        if (pages.any { it == null }) {
+            null
+        } else {
+            pages.filterNotNull().flatten()
+        }
     }
 
     private suspend fun fetchEntriesPaged(
@@ -457,36 +615,37 @@ internal class MinifluxAccountDelegate(
             .distinctBy { it.id }
             .filterNot { it.id.toString() in knownFeedIDs }
 
+        // Parse titles, rewrite proxy URLs, and build summaries before opening
+        // the transaction. That work dominates the cost of saving a page, and
+        // SQLite has a single writer -- doing it inside the transaction holds
+        // the write lock against the other concurrent page fetches and against
+        // the article list's own reads.
+        val prepared = entries.map { entry -> prepare(entry, minifluxBaseUrl) }
+
         database.transactionWithErrorHandling {
             missingFeeds.forEach { feed ->
                 upsertFeed(feed, icons = emptyMap())
             }
 
-            entries.forEach { entry ->
-                val updated = TimeHelpers.nowUTC()
-                val articleID = entry.id.toString()
-                val imageURL = MinifluxEnclosureParsing.parsedImageURL(entry)
-                val enclosures = entry.enclosures.orEmpty()
-                val resolvedContent = MinifluxProxyResolver.resolve(entry.content, minifluxBaseUrl)
-
+            prepared.forEach { entry ->
                 database.articlesQueries.create(
-                    id = articleID,
-                    feed_id = entry.feed_id.toString(),
-                    title = Jsoup.parse(entry.title).text(),
+                    id = entry.articleID,
+                    feed_id = entry.feedID,
+                    title = entry.title,
                     author = entry.author,
-                    content_html = resolvedContent,
+                    content_html = entry.content,
                     extracted_content_url = null,
                     url = entry.url,
-                    summary = ContentFormatter.summary(resolvedContent),
-                    image_url = imageURL,
-                    published_at = entry.published_at.toDateTime?.toEpochSecond() ?: updated.toEpochSecond(),
-                    enclosure_type = enclosures.firstOrNull()?.mime_type,
+                    summary = entry.summary,
+                    image_url = entry.imageURL,
+                    published_at = entry.publishedAt,
+                    enclosure_type = entry.enclosures.firstOrNull()?.mime_type,
                 )
 
                 articleRecords.createStatus(
-                    articleID = articleID,
-                    updatedAt = updated,
-                    read = entry.status == EntryStatus.READ,
+                    articleID = entry.articleID,
+                    updatedAt = entry.updatedAt,
+                    read = entry.read,
                     // Persist the server's starred flag for new articles. A scoped
                     // refresh skips refreshStarredEntries(); without this a newly
                     // fetched, already-starred entry would be stored unstarred, and
@@ -496,11 +655,11 @@ internal class MinifluxAccountDelegate(
                     starred = entry.starred,
                 )
 
-                enclosures.forEach { enclosure ->
+                entry.enclosures.forEach { enclosure ->
                     enclosureRecords.create(
                         url = enclosure.url,
                         type = enclosure.mime_type,
-                        articleID = articleID,
+                        articleID = entry.articleID,
                         itunesDurationSeconds = null,
                         itunesImage = null,
                     )
@@ -508,6 +667,44 @@ internal class MinifluxAccountDelegate(
             }
         }
     }
+
+    private fun prepare(entry: Entry, minifluxBaseUrl: String): PreparedEntry {
+        val updated = TimeHelpers.nowUTC()
+        val resolvedContent = MinifluxProxyResolver.resolve(entry.content, minifluxBaseUrl)
+
+        return PreparedEntry(
+            articleID = entry.id.toString(),
+            feedID = entry.feed_id.toString(),
+            title = Jsoup.parse(entry.title).text(),
+            author = entry.author,
+            content = resolvedContent,
+            url = entry.url,
+            summary = ContentFormatter.summary(resolvedContent),
+            imageURL = MinifluxEnclosureParsing.parsedImageURL(entry),
+            publishedAt = entry.published_at.toDateTime?.toEpochSecond() ?: updated.toEpochSecond(),
+            updatedAt = updated,
+            read = entry.status == EntryStatus.READ,
+            starred = entry.starred,
+            enclosures = entry.enclosures.orEmpty(),
+        )
+    }
+
+    /** An [Entry] with its content parsed, ready for insertion. */
+    private data class PreparedEntry(
+        val articleID: String,
+        val feedID: String,
+        val title: String,
+        val author: String?,
+        val content: String,
+        val url: String,
+        val summary: String,
+        val imageURL: String?,
+        val publishedAt: Long,
+        val updatedAt: ZonedDateTime,
+        val read: Boolean,
+        val starred: Boolean,
+        val enclosures: List<Enclosure>,
+    )
 
     private fun upsertFeed(feed: MinifluxFeed, icons: Map<Long, String>) {
         val icon = feed.icon?.icon_id?.let { icons[it] }
@@ -571,6 +768,10 @@ internal class MinifluxAccountDelegate(
 
     companion object {
         const val MAX_ENTRY_LIMIT = 250
+
+        /** Miniflux caps `GET /entries/ids` at 10,000 IDs per request. */
+        const val MAX_ENTRY_ID_LIMIT = 10_000
+
         private const val MAX_CONCURRENT_FETCHES = 4
     }
 }

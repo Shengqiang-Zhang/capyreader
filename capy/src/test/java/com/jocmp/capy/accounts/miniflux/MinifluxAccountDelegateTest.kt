@@ -18,6 +18,7 @@ import com.jocmp.minifluxclient.CreateFeedRequest
 import com.jocmp.minifluxclient.CreateFeedResponse
 import com.jocmp.minifluxclient.Enclosure
 import com.jocmp.minifluxclient.Entry
+import com.jocmp.minifluxclient.EntryIDResultSet
 import com.jocmp.minifluxclient.EntryResultSet
 import com.jocmp.minifluxclient.EntryStatus
 import com.jocmp.minifluxclient.Feed
@@ -33,6 +34,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import kotlinx.coroutines.test.runTest
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Test
 import retrofit2.Response
 import java.net.SocketTimeoutException
@@ -42,6 +45,9 @@ import kotlin.test.assertTrue
 
 class MinifluxAccountDelegateTest {
     private val accountID = "777"
+
+    /** An article ID that never collides with the generated 1..10_000 ID pages. */
+    private val LOCAL_UNREAD_ID = "999999"
     private lateinit var database: Database
     private lateinit var miniflux: Miniflux
     private lateinit var feedFixture: FeedFixture
@@ -180,28 +186,46 @@ class MinifluxAccountDelegateTest {
         delegate = MinifluxAccountDelegate(database, miniflux, preferences)
     }
 
+    private fun stubStarredIDs(vararg ids: Long) {
+        coEvery { miniflux.entryIDs(starred = true, limit = 10_000, offset = 0) }.returns(
+            Response.success(EntryIDResultSet(total = ids.size, entry_ids = ids.toList()))
+        )
+    }
+
+    private fun stubUnreadIDs(vararg ids: Long) {
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 0)
+        }.returns(
+            Response.success(EntryIDResultSet(total = ids.size, entry_ids = ids.toList()))
+        )
+    }
+
+    /** Stubs the entry fetch used by a full refresh's content sync. */
+    private fun stubChangedEntries(vararg changed: Entry) {
+        coEvery {
+            miniflux.entries(
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = null,
+            )
+        }.returns(
+            Response.success(EntryResultSet(total = changed.size, entries = changed.toList()))
+        )
+    }
+
+    private fun <T> errorResponse(code: Int): Response<T> =
+        Response.error(code, "{}".toResponseBody("application/json".toMediaType()))
+
     @Test
     fun refresh_updatesEntries() = runTest {
         coEvery { miniflux.feeds() }.returns(Response.success(feeds))
         coEvery { miniflux.icon(1) }.returns(
             Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
         )
-        coEvery { miniflux.entries(starred = true, limit = 250, offset = 0) }.returns(
-            Response.success(
-                EntryResultSet(
-                    total = 0,
-                    entries = emptyList()
-                )
-            )
-        )
-        coEvery { miniflux.entries(status = EntryStatus.UNREAD.value, limit = 250, offset = 0) }.returns(
-            Response.success(
-                EntryResultSet(
-                    total = 1,
-                    entries = listOf(arsTechnicaArticle)
-                )
-            )
-        )
+        stubStarredIDs()
+        stubUnreadIDs(arsTechnicaArticle.id)
         coEvery {
             miniflux.entries(
                 limit = 250,
@@ -243,6 +267,288 @@ class MinifluxAccountDelegateTest {
 
         val enclosures = EnclosureRecords(database).findByArticle(vergeArticle.id.toString())
         assertEquals(expected = 1, actual = enclosures.size)
+    }
+
+    @Test
+    fun refresh_usesEntryIDsEndpointWithoutFetchingEntryContent() = runTest {
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        stubStarredIDs()
+        stubUnreadIDs(arsTechnicaArticle.id)
+        stubChangedEntries(*entries.toTypedArray())
+
+        delegate.refresh(ArticleFilter.default())
+
+        // The unread and starred sets must come from /entries/ids. Paging
+        // /entries for them downloads every article's content just to keep IDs.
+        coVerify(exactly = 0) { miniflux.entries(starred = true, limit = any(), offset = any()) }
+        coVerify(exactly = 0) {
+            miniflux.entries(status = EntryStatus.UNREAD.value, limit = any(), offset = any())
+        }
+    }
+
+    @Test
+    fun refresh_fallsBackToEntriesWhenEntryIDsUnsupported() = runTest {
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+
+        // Miniflux < 2.3.2 routes /entries/ids to /entries/{entryID} and
+        // rejects "ids" as an invalid entry ID with a 400.
+        coEvery { miniflux.entryIDs(starred = true, limit = any(), offset = any()) }
+            .returns(errorResponse(400))
+        coEvery { miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = any(), offset = any()) }
+            .returns(errorResponse(400))
+
+        coEvery { miniflux.entries(starred = true, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        )
+        coEvery { miniflux.entries(status = EntryStatus.UNREAD.value, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 1, entries = listOf(arsTechnicaArticle)))
+        )
+        stubChangedEntries(*entries.toTypedArray())
+
+        val result = delegate.refresh(ArticleFilter.default())
+
+        assertEquals(expected = Result.success(Unit), actual = result)
+
+        val unread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+
+        assertEquals(expected = 1, actual = unread.size)
+    }
+
+    @Test
+    fun refresh_skipsUnreadReconciliationWhenIDFetchFails() = runTest {
+        val feed = feedFixture.create(feedID = "2")
+        ArticleFixture(database).create(id = "99", feed = feed, read = false)
+
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        stubStarredIDs()
+        // A transient server error, not an unsupported endpoint. Reconciling
+        // against the resulting partial set would mark every local article read.
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = any(), offset = any())
+        }.returns(errorResponse(500))
+        stubChangedEntries()
+
+        delegate.refresh(ArticleFilter.default())
+
+        val stillUnread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+
+        assertEquals(expected = 1, actual = stillUnread.size)
+    }
+
+    @Test
+    fun refresh_skipsStarReconciliationWhenIDFetchFails() = runTest {
+        val feed = feedFixture.create(feedID = "2")
+        ArticleFixture(database).create(id = "99", feed = feed, read = true, starred = true)
+
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        // Reconciling against a failed fetch would un-star every local article.
+        coEvery { miniflux.entryIDs(starred = true, limit = any(), offset = any()) }
+            .returns(errorResponse(500))
+        stubUnreadIDs()
+        stubChangedEntries()
+
+        delegate.refresh(ArticleFilter.default())
+
+        val stillStarred = database.articlesQueries
+            .countAll(read = true, starred = true)
+            .executeAsList()
+
+        assertEquals(expected = 1, actual = stillStarred.size)
+    }
+
+    @Test
+    fun refresh_pagesEntryIDsBeyondTheFirstRequest() = runTest {
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        stubStarredIDs()
+
+        // `total` exceeding the returned IDs must drive a follow-up page.
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 0)
+        }.returns(
+            Response.success(EntryIDResultSet(total = 10_001, entry_ids = List(10_000) { it + 1L }))
+        )
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 10_000)
+        }.returns(
+            Response.success(EntryIDResultSet(total = 10_001, entry_ids = listOf(arsTechnicaArticle.id)))
+        )
+        stubChangedEntries(arsTechnicaArticle)
+
+        delegate.refresh(ArticleFilter.default())
+
+        coVerify(exactly = 1) {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 10_000)
+        }
+
+        val unread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+
+        assertEquals(expected = 1, actual = unread.size)
+    }
+
+    @Test
+    fun refresh_skipsReconciliationWhenALaterIDPageFails() = runTest {
+        val feed = feedFixture.create(feedID = "2")
+        // Outside the stubbed 1..10_000 ID range, so the server does not
+        // consider it unread -- a completed reconciliation WOULD mark it read.
+        ArticleFixture(database).create(id = LOCAL_UNREAD_ID, feed = feed, read = false)
+
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        stubStarredIDs()
+
+        // The first page succeeds; a later one fails. The IDs gathered so far
+        // are a partial set, so reconciling against them would mark article 99
+        // read even though the server still considers it unread.
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 0)
+        }.returns(
+            Response.success(EntryIDResultSet(total = 10_001, entry_ids = List(10_000) { it + 1L }))
+        )
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 10_000)
+        }.returns(errorResponse(500))
+        stubChangedEntries()
+
+        delegate.refresh(ArticleFilter.default())
+
+        val stillUnread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+
+        assertEquals(expected = 1, actual = stillUnread.size)
+    }
+
+    @Test
+    fun refresh_skipsReconciliationWhenALaterIDPageComesBackShort() = runTest {
+        val feed = feedFixture.create(feedID = "2")
+        // Outside the stubbed 1..10_000 ID range, so the server does not
+        // consider it unread -- a completed reconciliation WOULD mark it read.
+        ArticleFixture(database).create(id = LOCAL_UNREAD_ID, feed = feed, read = false)
+
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        stubStarredIDs()
+
+        // Every page returns 200, but the set shrank server-side mid-pagination
+        // so the last page is short: 10,000 of an advertised 10,002 IDs arrive.
+        // A successful-but-truncated set must not reconcile either.
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 0)
+        }.returns(
+            Response.success(EntryIDResultSet(total = 10_002, entry_ids = List(10_000) { it + 1L }))
+        )
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 10_000)
+        }.returns(
+            Response.success(EntryIDResultSet(total = 10_002, entry_ids = emptyList()))
+        )
+        stubChangedEntries()
+
+        delegate.refresh(ArticleFilter.default())
+
+        val stillUnread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+
+        assertEquals(expected = 1, actual = stillUnread.size)
+    }
+
+    @Test
+    fun refresh_skipsReconciliationWhenPagesRepeatIDsInsteadOfCoveringTheTotal() = runTest {
+        val feed = feedFixture.create(feedID = "2")
+        // Outside the stubbed 1..10_000 ID range, so the server does not
+        // consider it unread -- a completed reconciliation WOULD mark it read.
+        ArticleFixture(database).create(id = LOCAL_UNREAD_ID, feed = feed, read = false)
+
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        stubStarredIDs()
+
+        // Entries inserted server-side between requests shift rows across the
+        // page boundary, so the second page repeats an ID from the first: the
+        // raw count reaches the total while one entry is still missing.
+        // Measuring completeness on distinct IDs catches that. Without it the
+        // duplicate reaches markAllUnread and trips the excluded_statuses
+        // primary key, which transactionWithErrorHandling swallows -- the same
+        // outcome for this article, but silently and without a log.
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 0)
+        }.returns(
+            Response.success(EntryIDResultSet(total = 10_001, entry_ids = List(10_000) { it + 1L }))
+        )
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = 10_000, offset = 10_000)
+        }.returns(
+            Response.success(EntryIDResultSet(total = 10_001, entry_ids = listOf(1L)))
+        )
+        stubChangedEntries()
+
+        delegate.refresh(ArticleFilter.default())
+
+        val stillUnread = database.articlesQueries
+            .countAll(read = false, starred = false)
+            .executeAsList()
+
+        assertEquals(expected = 1, actual = stillUnread.size)
+    }
+
+    @Test
+    fun refresh_fallsBackOnEveryRefreshRatherThanCachingUnsupported() = runTest {
+        coEvery { miniflux.feeds() }.returns(Response.success(feeds))
+        coEvery { miniflux.icon(1) }.returns(
+            Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
+        )
+        coEvery { miniflux.entryIDs(starred = true, limit = any(), offset = any()) }
+            .returns(errorResponse(400))
+        coEvery { miniflux.entries(starred = true, limit = 250, offset = 0) }.returns(
+            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        )
+        stubUnreadIDs()
+        // The first refresh advances lastRefreshedAt, so the second passes a
+        // real changed_after watermark.
+        coEvery {
+            miniflux.entries(
+                limit = 250,
+                offset = 0,
+                order = "published_at",
+                direction = "desc",
+                changedAfter = any(),
+            )
+        }.returns(Response.success(EntryResultSet(total = 0, entries = emptyList())))
+
+        delegate.refresh(ArticleFilter.default())
+        delegate.refresh(ArticleFilter.default())
+
+        // A 400 is not remembered: a proxy or rolling deploy can produce one,
+        // and a server upgraded to 2.3.2 must be picked up without a restart.
+        coVerify(exactly = 2) { miniflux.entryIDs(starred = true, limit = any(), offset = any()) }
     }
 
     @Test
@@ -605,11 +911,13 @@ class MinifluxAccountDelegateTest {
             Response.success(IconData(id = 1, data = "image/png;base64,abc", mime_type = "image/png"))
         )
 
-        coEvery { miniflux.entries(starred = true, limit = any(), offset = any()) }.returns(
-            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        coEvery { miniflux.entryIDs(starred = true, limit = any(), offset = any()) }.returns(
+            Response.success(EntryIDResultSet(total = 0, entry_ids = emptyList()))
         )
-        coEvery { miniflux.entries(status = EntryStatus.UNREAD.value, limit = any(), offset = any()) }.returns(
-            Response.success(EntryResultSet(total = 0, entries = emptyList()))
+        coEvery {
+            miniflux.entryIDs(status = EntryStatus.UNREAD.value, limit = any(), offset = any())
+        }.returns(
+            Response.success(EntryIDResultSet(total = 0, entry_ids = emptyList()))
         )
         coEvery {
             miniflux.entries(

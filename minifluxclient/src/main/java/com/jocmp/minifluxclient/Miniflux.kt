@@ -60,6 +60,19 @@ interface Miniflux {
         @Query("changed_after") changedAfter: Long? = null,
     ): Response<EntryResultSet>
 
+    /**
+     * Lists entry IDs without their content. Only available since Miniflux
+     * 2.3.2; earlier servers route this to `GET /entries/{entryID}` and reject
+     * "ids" as an invalid entry ID.
+     */
+    @GET("entries/ids")
+    suspend fun entryIDs(
+        @Query("status") status: String? = null,
+        @Query("starred") starred: Boolean? = null,
+        @Query("limit") limit: Int? = null,
+        @Query("offset") offset: Int? = null,
+    ): Response<EntryIDResultSet>
+
     @GET("feeds/{feedID}/entries")
     suspend fun feedEntries(
         @Path("feedID") feedID: Long,
