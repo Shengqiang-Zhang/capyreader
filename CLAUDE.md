@@ -3,7 +3,7 @@
 ## Build and Development
 
 - `./gradlew assembleFreeDebug` will compile the debug version of the app
-- For fast feedback, run single tests i.e. `./gradlew :capy:testDebugUnitTest --tests com.jocmp.capy.persistence.ArticleRecordsTest` replacing the module - `:capy` - and Java package accordingly
+- For fast feedback, run single tests i.e. `./gradlew :capy:test --tests com.jocmp.capy.persistence.ArticleRecordsTest` replacing the module - `:capy` - and Java package accordingly. `capy` and `minifluxclient` are JVM modules, so they use `:test`; Android modules (e.g. `:app`) use `:testDebugUnitTest`
 - `make test` will run all tests via Fastlane.
 - When modifying the `.js` and `.liquid` files, be sure to run `make` to compile those assets, and `make check` to typecheck
 
